@@ -1,0 +1,26 @@
+# Run artifacts and logs -- never belong in source control
+*.log
+*.zip
+
+# The tool's own working folders, if this repo root is ever pointed at a
+# real MediaRefresh working directory instead of just holding the scripts
+ISO/
+LOGS/
+MOUNT/
+OLDWIM/
+NEWWIM/
+PATCHES/
+TEMP/
+WINPE/
+WINRE/
+WORKING/
+
+# Generated at runtime, per machine -- not source
+Profiles/
+Settings/
+INSTRUCTIONS.md.bak
+
+# OS/editor noise
+Thumbs.db
+.DS_Store
+*.swp
