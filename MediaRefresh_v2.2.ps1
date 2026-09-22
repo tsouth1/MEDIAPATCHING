@@ -2,7 +2,7 @@
 #Requires -RunAsAdministrator
 <#
 .SYNOPSIS
-    Media Refresh Studio v2.2 - GUI offline servicing for Configuration Manager OSD WIMs.
+    WimForge v2.2 - GUI offline servicing for Configuration Manager OSD WIMs.
 .DESCRIPTION
     Mounts the OS ISO (plus optional Language Pack and FOD ISOs, detected by CONTENT, not file name),
     exports the configured client edition or preserves all Server indexes, services install.wim
@@ -838,7 +838,7 @@ function Invoke-MediaRefresh {
     $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
     $script:LogFile = Join-Path $paths.Logs ("MediaRefresh_{0}.log" -f $stamp)
     $script:DismLogArgs = @{ LogPath = (Join-Path $paths.Logs ("DISM_{0}.log" -f $stamp)) }
-    Write-Log "Starting Media Refresh Studio v2.2 for $name"
+    Write-Log "Starting WimForge v2.2 for $name"
     Write-ProfileMessages
     Write-Log "Profile: $($definition.SourceFile)"
     Write-SupportStatus -Definition $definition
@@ -957,9 +957,9 @@ function Invoke-MediaRefresh {
 
 #region GUI
 [xml]$xaml = @'
-<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="Media Refresh Studio v2.2" Height="780" Width="1040" WindowStartupLocation="CenterScreen" Background="#F4F6F8">
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="WimForge v2.2" Height="780" Width="1040" WindowStartupLocation="CenterScreen" Background="#F4F6F8">
  <Grid Margin="18"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-  <StackPanel Grid.Row="0" Margin="0,0,0,12"><TextBlock Text="Configuration Manager OSD Media Refresh" FontSize="25" FontWeight="SemiBold"/><TextBlock Text="Create cleaned, optimized, verified install.wim files (and optional boot.wim, refreshed media folder and ISO)." Foreground="#555" Margin="0,4,0,0"/></StackPanel>
+  <StackPanel Grid.Row="0" Margin="0,0,0,12"><TextBlock Text="WimForge" FontSize="25" FontWeight="SemiBold"/><TextBlock Text="Create cleaned, optimized, verified install.wim files (and optional boot.wim, refreshed media folder and ISO)." Foreground="#555" Margin="0,4,0,0"/></StackPanel>
   <TabControl Grid.Row="1">
    <TabItem Header="Source and targets"><Grid Margin="18"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions><Grid.ColumnDefinitions><ColumnDefinition Width="220"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
     <TextBlock Grid.Row="0" Grid.Column="0" Text="Repository root" Margin="0,8"/><TextBox x:Name="RootText" Grid.Row="0" Grid.Column="1" Text="F:\mediaRefresh" Height="30" Padding="6"/>
@@ -1117,12 +1117,12 @@ function Complete-BackgroundRun {
         $msg = "Completed successfully.`n`nOutput: $($res.NewWim)"
         if ($res.Preflight) { $msg = 'Preflight passed. No image was changed. See the Log tab for the ISO roles, patch counts and selected edition.' }
         if ($null -ne $res.VerifyIssues -and $res.VerifyIssues -gt 0) { $msg = "Completed with $($res.VerifyIssues) verification issue(s). Review the Log tab.`n`nOutput: $($res.NewWim)" }
-        [System.Windows.MessageBox]::Show($msg, 'Media Refresh Studio', 'OK', 'Information') | Out-Null
+        [System.Windows.MessageBox]::Show($msg, 'WimForge', 'OK', 'Information') | Out-Null
     } else {
         $script:Status.Text = 'Failed'; $script:Progress.Value = 0
         $m = if ($shared.ContainsKey('Message') -and $shared['Message']) { [string]$shared['Message'] } elseif ($engineErrors.Count -gt 0) { [string]$engineErrors[0] } else { 'The servicing run ended unexpectedly. See the Log tab.' }
         $script:LogBox.AppendText("[ERROR] $m" + [Environment]::NewLine)
-        [System.Windows.MessageBox]::Show($m, 'Media Refresh Studio', 'OK', 'Error') | Out-Null
+        [System.Windows.MessageBox]::Show($m, 'WimForge', 'OK', 'Error') | Out-Null
     }
 }
 
@@ -1140,7 +1140,7 @@ function Start-BackgroundRun {
     $script:RunHandle = $ps.BeginInvoke()
     $script:UiTimer.Start()
 }
-$script:UiTimer.Add_Tick({ try { Update-RunUi } catch { $script:UiTimer.Stop(); [System.Windows.MessageBox]::Show("Display update failed: $($_.Exception.Message)`nThe run may still be active; check the log file in the OS LOGS folder.", 'Media Refresh Studio') | Out-Null } })
+$script:UiTimer.Add_Tick({ try { Update-RunUi } catch { $script:UiTimer.Stop(); [System.Windows.MessageBox]::Show("Display update failed: $($_.Exception.Message)`nThe run may still be active; check the log file in the OS LOGS folder.", 'WimForge') | Out-Null } })
 
 $script:RunButton.Add_Click({
     $script:RunButton.IsEnabled = $false; $script:CancelButton.IsEnabled = $true
@@ -1149,7 +1149,7 @@ $script:RunButton.Add_Click({
         try { Start-BackgroundRun -Options $opts }
         catch {
             $script:RunButton.IsEnabled = $true; $script:CancelButton.IsEnabled = $false
-            [System.Windows.MessageBox]::Show("Could not start the background run: $($_.Exception.Message)", 'Media Refresh Studio', 'OK', 'Error') | Out-Null
+            [System.Windows.MessageBox]::Show("Could not start the background run: $($_.Exception.Message)", 'WimForge', 'OK', 'Error') | Out-Null
         }
         return
     }
@@ -1160,12 +1160,12 @@ $script:RunButton.Add_Click({
         $msg = "Completed successfully.`n`nOutput: $($res.NewWim)"
         if ($res.Preflight) { $msg = 'Preflight passed. No image was changed. See the Log tab for the ISO roles, patch counts and selected edition.' }
         if ($null -ne $res.VerifyIssues -and $res.VerifyIssues -gt 0) { $msg = "Completed with $($res.VerifyIssues) verification issue(s). Review the Log tab.`n`nOutput: $($res.NewWim)" }
-        [System.Windows.MessageBox]::Show($msg, 'Media Refresh Studio', 'OK', 'Information') | Out-Null
+        [System.Windows.MessageBox]::Show($msg, 'WimForge', 'OK', 'Information') | Out-Null
     } catch {
         Write-Log $_.Exception.ToString() 'ERROR'
         Write-Log "At line $($_.InvocationInfo.ScriptLineNumber): $($_.InvocationInfo.Line.Trim())" 'ERROR'
         Set-Progress 0 'Failed'
-        [System.Windows.MessageBox]::Show($_.Exception.Message, 'Media Refresh Studio', 'OK', 'Error') | Out-Null
+        [System.Windows.MessageBox]::Show($_.Exception.Message, 'WimForge', 'OK', 'Error') | Out-Null
     } finally { Dismount-AllIso; $script:RunButton.IsEnabled = $true; $script:CancelButton.IsEnabled = $false }
 })
 $script:CancelButton.Add_Click({
@@ -1174,6 +1174,6 @@ $script:CancelButton.Add_Click({
     $script:RunStatus = 'Cancellation requested. Stops at the next safe point; a running DISM operation must finish first.'
     $script:Status.Text = $script:RunStatus
 })
-$window.Add_Closing({ if (-not $script:RunButton.IsEnabled) { $_.Cancel = $true; [System.Windows.MessageBox]::Show('A servicing operation is active. Use Cancel and allow the current DISM operation to finish.', 'Media Refresh Studio') | Out-Null } })
+$window.Add_Closing({ if (-not $script:RunButton.IsEnabled) { $_.Cancel = $true; [System.Windows.MessageBox]::Show('A servicing operation is active. Use Cancel and allow the current DISM operation to finish.', 'WimForge') | Out-Null } })
 [void]$window.ShowDialog()
 #endregion GUI

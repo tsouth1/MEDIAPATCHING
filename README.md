@@ -1,4 +1,4 @@
-# Media Refresh Studio
+# WimForge
 
 Automates adding cumulative patches, language packs, and Features on Demand to
 Windows OS media (Windows 11, Windows 10 LTSC, Windows Server 2022, and

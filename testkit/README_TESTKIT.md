@@ -1,4 +1,4 @@
-# Media Refresh Studio - mock-based test kit
+# WimForge - mock-based test kit
 
 These checks exercise the engine without real images or a real DISM: the DISM cmdlets, ISO mounting and free-space reader are replaced by mocks, so call order, error handling, profile loading and output handling can be re-checked after every change.
 
