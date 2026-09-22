@@ -1,6 +1,7 @@
 # WimForge
 
-Automates adding cumulative patches, language packs, and Features on Demand to
+Inspired by other great tools, like WimWizard, WimWitch.
+WimForge automates adding cumulative patches, language packs, and Features on Demand to
 Windows OS media (Windows 11, Windows 10 LTSC, Windows Server 2022, and
 others) as an offline DISM servicing step, ahead of importing the refreshed
 images into SCCM/Configuration Manager for deployment.
@@ -10,6 +11,8 @@ The tool is a single-file PowerShell 5.1 WPF GUI application: mount an OS ISO
 language packs/.NET CU in Microsoft's documented order, verify the result,
 and optionally build a refreshed media folder and ISO for OS Upgrade
 Packages.
+![WimForge Screenshot](wimforge.png)
+
 
 ## Files
 
