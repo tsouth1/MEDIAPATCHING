@@ -16,11 +16,13 @@ function Install-Module { [CmdletBinding()] param($Name, [string]$Scope, [switch
 $script:CatalogResults = @{}
 function Get-MSCatalogUpdate { [CmdletBinding()] param([string]$Search) Note "CatalogSearch $Search"; return @($script:CatalogResults[$Search]) }
 $script:CatalogFileNames = @{}
-function Save-MSCatalogUpdate { [CmdletBinding()] param($Update, [string]$Destination, [switch]$Confirm)
-    Note "CatalogSave $($Update.Title) -> $Destination"
+# -DownloadAll is a real parameter of the installed MSCatalogLTS (confirmed on Terry's machine, 2026-09-23). A title
+# mapped to an array of names mimics a multi-file catalog entry (the combined .NET CU downloads two .msu files).
+function Save-MSCatalogUpdate { [CmdletBinding()] param($Update, [string]$Destination, [switch]$Confirm, [switch]$DownloadAll)
+    Note "CatalogSave $($Update.Title) -> $Destination$(if ($DownloadAll) { ' [DownloadAll]' })"
     New-Item -ItemType Directory -Force $Destination | Out-Null
-    $name = $script:CatalogFileNames[$Update.Title]; if (-not $name) { $name = 'download.msu' }
-    Set-Content (Join-Path $Destination $name) 'downloaded'
+    $names = @($script:CatalogFileNames[$Update.Title]); if (-not $names[0]) { $names = @('download.msu') }
+    foreach ($name in $names) { Set-Content (Join-Path $Destination $name) 'downloaded' }
 }
 $script:IsoMap = @{}
 function Mount-IsoFile { param([string]$ImagePath) $script:MountedIsoPaths.Add($ImagePath); return $script:IsoMap[(Split-Path $ImagePath -Leaf)] }
@@ -157,5 +159,76 @@ Check 'real run downloaded both term matches, not just one' (@($resMultiReal.Dow
 $netcuFiles = @(Get-ChildItem (Join-Path $paths2.Patches 'NETCU') -File | Select-Object -ExpandProperty Name | Sort-Object)
 Check 'both downloaded files are kept side by side; the stale pre-existing file is pruned' (($netcuFiles -join ',') -eq 'windows10.0-kb6000001-x64-ndp48.msu,windows10.0-kb6000002-x64-ndp472.msu')
 Check 'neither current file pruned the other (both KBs present in Downloaded)' (@($resMultiReal.Downloaded | Where-Object { $_.Kb -eq 'KB6000001' }).Count -eq 1 -and @($resMultiReal.Downloaded | Where-Object { $_.Kb -eq 'KB6000002' }).Count -eq 1)
+
+# Capture log lines for A7 as well as printing them (mocks.ps1's Write-Log only prints).
+$script:LogLines = [System.Collections.Generic.List[string]]::new()
+function Write-Log { param($Message, $Level = 'INFO') $script:LogLines.Add("[$Level] $Message"); Write-Host ("   [{0}] {1}" -f $Level, $Message) }
+Write-Host "`n=== A7 Real catalog shapes (Terry's LTSC 2019 test, 2026-09-23): architecture from the title, title filters, multi-file entries, not-applicable .NET parts ==="
+# Real Get-MSCatalogUpdate results have Title/Products/Classification/LastUpdated/Version/Size/SizeInBytes/Guid/FileNames -
+# no Architecture property. The x86 combined .NET CU entry names no architecture in its title; the x64 one ends "for x64".
+$t86 = '2026-09 Cumulative Update for .NET Framework 3.5, 4.7.2 and 4.8 for Windows 10 Version 1809 (KB5126144)'
+$t64 = '2026-09 Cumulative Update for .NET Framework 3.5, 4.7.2 and 4.8 for Windows 10 Version 1809 for x64 (KB5126144)'
+$tArm = '2026-09 Cumulative Update for .NET Framework 3.5, 4.7.2 and 4.8 for Windows 10 Version 1809 for ARM64 (KB5126144)'
+$tLcu = '2026-09 Cumulative Update for Windows 10 Version 1809 for x64-based Systems (KB5126100)'
+$tDynLcu = '2026-09 Dynamic Cumulative Update for Windows 10 Version 1809 for x64-based Systems (KB5126101)'
+function Real-Result($title, $date = '9/8/2026 9:25:13 PM') { [pscustomobject]@{ Title = $title; Products = 'Windows 10, Windows 10 LTSB'; Classification = 'Security Updates'; LastUpdated = $date; Version = 'n/a'; Size = '100.8 MB'; SizeInBytes = 105703326; Guid = [guid]::NewGuid().ToString(); FileNames = '' } }
+Check 'Get-ArchFromText: x64 title / x86-less title / ARM64 title' ((Get-ArchFromText $t64) -eq 'x64' -and (Get-ArchFromText $t86) -eq '' -and (Get-ArchFromText $tArm) -eq 'arm64')
+Check 'Get-ArchFromText: file names (x64, x86-ndp48, x64-based Systems)' ((Get-ArchFromText 'windows10.0-kb5126043-x64.msu') -eq 'x64' -and (Get-ArchFromText 'windows10.0-kb5126048-x86-ndp48.msu') -eq 'x86' -and (Get-ArchFromText $tLcu) -eq 'x64')
+$ruleX64 = [pscustomobject]@{ architecture = 'x64'; excludePreview = $true; buildFilter = '' }
+Check 'no Architecture property: x64 title accepted' (Test-CatalogCandidate -Result (Real-Result $t64) -Rule $ruleX64)
+Check 'no Architecture property: title naming no architecture (the x86 .NET entry) rejected' (-not (Test-CatalogCandidate -Result (Real-Result $t86) -Rule $ruleX64))
+Check 'no Architecture property: ARM64 title rejected' (-not (Test-CatalogCandidate -Result (Real-Result $tArm) -Rule $ruleX64))
+Check "architecture '' in the rule switches the check off" (Test-CatalogCandidate -Result (Real-Result $t86) -Rule ([pscustomobject]@{ architecture = ''; excludePreview = $true; buildFilter = '' }))
+Check 'Architecture property amd64 counts as x64' (Test-CatalogCandidate -Result ([pscustomobject]@{ Title = 'Some update'; Architecture = 'AMD64' }) -Rule $ruleX64)
+
+$b1809 = ConvertTo-OsProfile -Data (Get-BuiltInProfileData | Where-Object { $_.folder -eq 'Win10_Enterprise_LTSC_2019' } | Select-Object -First 1)
+$lcuRule = [pscustomobject]@{ architecture = 'x64'; excludePreview = $true; buildFilter = $b1809.CatalogSearch['LCU'].buildFilter }
+Check 'built-in 1809 LCU filter accepts the real LCU title' (Test-CatalogCandidate -Result (Real-Result $tLcu) -Rule $lcuRule)
+Check 'built-in 1809 LCU filter rejects the .NET CU released the same day' (-not (Test-CatalogCandidate -Result (Real-Result $t64) -Rule $lcuRule))
+Check 'built-in 1809 LCU filter rejects the Dynamic Cumulative Update' (-not (Test-CatalogCandidate -Result (Real-Result $tDynLcu) -Rule $lcuRule))
+$netRule = [pscustomobject]@{ architecture = 'x64'; excludePreview = $true; buildFilter = $b1809.CatalogSearch['NetCU'].buildFilter }
+Check 'built-in 1809 NetCU is one search term (the combined 3.5, 4.7.2 and 4.8 entry)' (@($b1809.CatalogSearch['NetCU'].searches).Count -eq 1 -and $b1809.CatalogSearch['NetCU'].search -like '*3.5, 4.7.2 and 4.8*Version 1809*')
+Check 'built-in 1809 NetCU filter: x64 combined entry accepted, x86 entry and 4.7.2-only entry rejected' ((Test-CatalogCandidate -Result (Real-Result $t64) -Rule $netRule) -and -not (Test-CatalogCandidate -Result (Real-Result $t86) -Rule $netRule) -and -not (Test-CatalogCandidate -Result (Real-Result '2026-09 Cumulative Update for .NET Framework 3.5 and 4.7.2 for Windows 10 Version 1809 for x64 (KB5126043)') -Rule $netRule))
+$b21 = ConvertTo-OsProfile -Data (Get-BuiltInProfileData | Where-Object { $_.folder -eq 'Win10_Enterprise_LTSC_2021_KMS' } | Select-Object -First 1)
+$lcu21 = [pscustomobject]@{ architecture = 'x64'; excludePreview = $true; buildFilter = $b21.CatalogSearch['LCU'].buildFilter }
+Check 'built-in 21H2 LCU filter rejects Windows 11 21H2 and accepts Windows 10 21H2' ((Test-CatalogCandidate -Result (Real-Result '2026-09 Cumulative Update for Windows 10 Version 21H2 for x64-based Systems (KB5126200)') -Rule $lcu21) -and -not (Test-CatalogCandidate -Result (Real-Result '2026-09 Cumulative Update for Windows 11 Version 21H2 for x64-based Systems (KB5126201)') -Rule $lcu21))
+
+# End to end: the x86 entry is listed first (as on Terry's machine), the x64 entry downloads two files.
+Reset-Test
+$realDef = ConvertTo-OsProfile -Data ([ordered]@{
+    name = 'TestOS3'; folder = 'TestOS3'; editionRegex = 'a'; preferredIndex = 1
+    catalogSearch = [ordered]@{ NetCU = [ordered]@{ search = 'search-real-netcu'; architecture = 'x64'; excludePreview = $true; buildFilter = $b1809.CatalogSearch['NetCU'].buildFilter } }
+})
+$paths3 = Initialize-Repository -Root $base -Definition $realDef
+Fake-Iso 'TestOS3' 'osiso3' @('sources/install.wim')
+New-File (Join-Path $paths3.Patches 'NETCU\windows10.0-kb5120000-x64.msu')
+$script:CatalogResults['search-real-netcu'] = @((Real-Result $t86), (Real-Result $t64))
+$script:CatalogFileNames[$t64] = @('windows10.0-kb5126048-x64-ndp48.msu', 'windows10.0-kb5126043-x64.msu')
+$resReal = Invoke-PatchAcquisition -Options ([pscustomobject]@{ OsName = 'TestOS3'; Root = $base; Mode = 'Download'; DryRun = $false; LCU = $false; NetCU = $true; SafeOS = $false; SetupDU = $false }) -Definition $realDef -Paths $paths3
+Check 'the x64 entry was saved, never the x86 one listed before it' (@($script:Calls -match '^CatalogSave').Count -eq 1 -and ($script:Calls -match '^CatalogSave') -match 'for x64 \(KB5126144\)')
+Check '-DownloadAll passed because the installed module declares it' ([bool]($script:Calls -match '^CatalogSave.*\[DownloadAll\]'))
+$net3 = @(Get-ChildItem (Join-Path $paths3.Patches 'NETCU') -File | Select-Object -ExpandProperty Name | Sort-Object)
+Check 'both files of the entry kept (4.7.2 and 4.8 parts); the previous month''s file pruned' (($net3 -join ',') -eq 'windows10.0-kb5126043-x64.msu,windows10.0-kb5126048-x64-ndp48.msu')
+Check 'Downloaded lists each file under its own KB, with the catalog entry KB alongside' ((@($resReal.Downloaded | ForEach-Object { $_.Kb } | Sort-Object) -join ',') -eq 'KB5126043,KB5126048' -and @($resReal.Downloaded | Where-Object { $_.EntryKb -eq 'KB5126144' }).Count -eq 2)
+
+# A download whose file name says x86 (should never happen after the title check, but is removed if it does).
+Reset-Test
+$script:CatalogResults['search-real-netcu'] = @((Real-Result $t64))
+$script:CatalogFileNames[$t64] = @('windows10.0-kb5126043-x64.msu', 'windows10.0-kb5126043-x86.msu')
+$resMixed = Invoke-PatchAcquisition -Options ([pscustomobject]@{ OsName = 'TestOS3'; Root = $base; Mode = 'Download'; DryRun = $false; LCU = $false; NetCU = $true; SafeOS = $false; SetupDU = $false }) -Definition $realDef -Paths $paths3
+Check 'a downloaded file named for another architecture is removed and not reported as downloaded' (-not (Test-Path (Join-Path $paths3.Patches 'NETCU\windows10.0-kb5126043-x86.msu')) -and @($resMixed.Downloaded).Count -eq 1 -and ($script:LogLines -match 'removing windows10.0-kb5126043-x86.msu'))
+
+# Servicing: the 4.8 part of the combined .NET CU does not apply to an image with only 4.7.2 (CBS_E_NOT_APPLICABLE).
+Reset-Test
+function Add-WindowsPackage { [CmdletBinding()] param($Path, [Parameter(Mandatory)][ValidateNotNullOrEmpty()]$PackagePath, $LogPath)
+    if ($PackagePath -like '*ndp48*') { throw 'Add-WindowsPackage failed. Error code = 0x800f081e. The specified package is not applicable to this image.' }
+    Note ("AddPkg $(Split-Path $PackagePath -Leaf) @ $(Split-Path $Path -Leaf)") }
+$svcDir = Join-Path $base 'svc_netcu'
+New-File (Join-Path $svcDir 'windows10.0-kb5126043-x64.msu'); New-File (Join-Path $svcDir 'windows10.0-kb5126048-x64-ndp48.msu')
+$pkgs = @(Get-ChildItem $svcDir -File | Sort-Object Name)
+$threw = $false; try { Add-Packages -MountPath (Join-Path $base 'mnt') -Packages $pkgs -Target 'install.wim index 1' -Label '.NET CU' -SkipNotApplicable } catch { $threw = $true }
+Check '-SkipNotApplicable: the not-applicable 4.8 part is skipped with a WARN, the 4.7.2 part still applied' (-not $threw -and ($script:Calls -match '^AddPkg windows10.0-kb5126043-x64.msu') -and ($script:LogLines -match 'Skipped \.NET CU windows10.0-kb5126048-x64-ndp48.msu: not applicable'))
+$threw = $false; try { Add-Packages -MountPath (Join-Path $base 'mnt') -Packages $pkgs -Target 'install.wim index 1' -Label 'LCU (final)' } catch { $threw = $true }
+Check 'without -SkipNotApplicable (every other class) a not-applicable package still fails the run' $threw
 
 Write-Host "`nRESULT: $pass passed, $fail failed"
