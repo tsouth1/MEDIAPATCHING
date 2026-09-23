@@ -211,6 +211,22 @@ $net3 = @(Get-ChildItem (Join-Path $paths3.Patches 'NETCU') -File | Select-Objec
 Check 'both files of the entry kept (4.7.2 and 4.8 parts); the previous month''s file pruned' (($net3 -join ',') -eq 'windows10.0-kb5126043-x64.msu,windows10.0-kb5126048-x64-ndp48.msu')
 Check 'Downloaded lists each file under its own KB, with the catalog entry KB alongside' ((@($resReal.Downloaded | ForEach-Object { $_.Kb } | Sort-Object) -join ',') -eq 'KB5126043,KB5126048' -and @($resReal.Downloaded | Where-Object { $_.EntryKb -eq 'KB5126144' }).Count -eq 2)
 
+# A class whose search returns nothing must not stop the run (Terry's real LTSC 2019 dry run: the Safe OS DU search
+# returned 0 results and the run died on '.Count' under StrictMode); later classes still run and it is reported.
+Reset-Test
+$zeroDef = ConvertTo-OsProfile -Data ([ordered]@{
+    name = 'TestOS3'; folder = 'TestOS3'; editionRegex = 'a'; preferredIndex = 1
+    catalogSearch = [ordered]@{
+        SafeOS = [ordered]@{ search = 'search-nothing'; architecture = 'x64'; excludePreview = $true }
+        SetupDU = [ordered]@{ search = 'search-setupdu'; architecture = 'x64'; excludePreview = $true }
+    }
+})
+$script:CatalogResults['search-nothing'] = @()
+$script:CatalogResults['search-setupdu'] = @((Real-Result '2026-09 Setup Dynamic Update for Windows 10 Version 1809 for x64-based Systems (KB5126300)'))
+$zeroErr = ""; $threw = $false; try { $resZero = Invoke-PatchAcquisition -Options ([pscustomobject]@{ OsName = 'TestOS3'; Root = $base; Mode = 'Download'; DryRun = $true; LCU = $false; NetCU = $false; SafeOS = $true; SetupDU = $true }) -Definition $zeroDef -Paths $paths3 } catch { $threw = $true; $zeroErr = $_.Exception.Message }
+Check 'a search with no results does not stop the run' (-not $threw) $zeroErr
+Check 'the empty class is reported as skipped, and the next class still ran' (-not $threw -and @($resZero.SkippedClasses | Where-Object { $_ -like "SafeOS (no catalog result matched 'search-nothing')" }).Count -eq 1 -and @($resZero.Plan | Where-Object { $_.Class -eq 'SetupDU' -and $_.Kb -eq 'KB5126300' }).Count -eq 1)
+
 # A download whose file name says x86 (should never happen after the title check, but is removed if it does).
 Reset-Test
 $script:CatalogResults['search-real-netcu'] = @((Real-Result $t64))

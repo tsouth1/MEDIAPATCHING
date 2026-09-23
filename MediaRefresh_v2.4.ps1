@@ -30,6 +30,8 @@
                instead of only the newest one being kept and the rest pruned.
       * Fixed: a .NET CU file that does not apply to the image (the 4.8 part on an image without .NET 4.8) is
                skipped with a WARN instead of failing the whole servicing run.
+      * Fixed: a catalog search with no match stopped the whole download with "The property 'Count' cannot be found"
+               (Terry's first real dry run, LTSC 2019, Safe OS DU search); it is now reported as a skipped class.
       * Changed: the built-in LCU rules have a title filter so a .NET CU or Dynamic Update released the same day can
                no longer be picked as the LCU; the 1809 .NET CU rule searches for the combined entry.
     Version 2.2.0 (draft - test against non-production images first). v2.1 remains the build under real-image test.
@@ -664,9 +666,12 @@ function Invoke-PatchAcquisition {
         foreach ($term in $searchTerms) {
             Assert-NotCancelled
             $ruleObj = [pscustomobject]@{ search = $term; architecture = $ruleArch; excludePreview = $ruleExcludePreview; buildFilter = $ruleBuildFilter }
-            try { $candidates = Search-CatalogCandidates -Rule $ruleObj -Build $build }
+            # @() is required: a function returning an empty array hands the caller $null, and on Windows PowerShell 5.1 a
+            # single result comes back as a bare object - under StrictMode .Count on either throws (seen on Terry's first
+            # real dry run, LTSC 2019, when the Safe OS DU search returned nothing).
+            try { $candidates = @(Search-CatalogCandidates -Rule $ruleObj -Build $build) }
             catch { Write-Log "Catalog search failed for $class ('$term'): $($_.Exception.Message)" 'ERROR'; $skippedClasses.Add("$class (search failed for '$term': $($_.Exception.Message))"); continue }
-            if ($candidates.Count -eq 0) { continue }
+            if ($candidates.Count -eq 0) { $skippedClasses.Add("$class (no catalog result matched '$term')"); continue }
             $best = $candidates[0]
             $title = [string](Get-ProfileValue $best 'Title' '(untitled catalog result)')
             $kb = Get-KbFromName $title
