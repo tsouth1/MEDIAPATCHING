@@ -22,6 +22,16 @@
                (Win11 24H2+/Server 2025) are looked up from a profile-supplied KB list, not derived automatically -
                open point, see TODO.md step 5. Catalog search strings shipped in the built-in profiles are
                best-effort and need spot-checking against catalog.update.microsoft.com.
+      * Fixed (after Terry's real-catalog test, LTSC 2019): catalog results carry no Architecture property and the
+               catalog search matches words loosely, so an x86 entry could be picked for an x64 profile. The
+               architecture is now checked against the title (and each downloaded file name) instead.
+      * Fixed: a catalog entry can download several files (the combined .NET CU "3.5, 4.7.2 and 4.8" for 1809,
+               KB5126144, downloads KB5126043 for 3.5/4.7.2 and KB5126048 for 4.8). Every file is now kept,
+               instead of only the newest one being kept and the rest pruned.
+      * Fixed: a .NET CU file that does not apply to the image (the 4.8 part on an image without .NET 4.8) is
+               skipped with a WARN instead of failing the whole servicing run.
+      * Changed: the built-in LCU rules have a title filter so a .NET CU or Dynamic Update released the same day can
+               no longer be picked as the LCU; the 1809 .NET CU rule searches for the combined entry.
     Version 2.2.0 (draft - test against non-production images first). v2.1 remains the build under real-image test.
       * Added: OS profiles are JSON files in a Profiles folder beside the script (created from the built-in profiles the first
                time the folder is empty). Edit a file and press "Reload profiles"; a bad file is reported and skipped.
@@ -136,23 +146,23 @@ function Get-BuiltInProfileData {
         [ordered]@{ schemaVersion = 1; name = 'Windows 10 Enterprise LTSC 2019 (IoT)'; sortOrder = 10; folder = 'Win10_Enterprise_LTSC_2019'; altFolders = @()
             serviceAllIndexes = $false; editionRegex = '(?i)^Windows 10 (IoT )?Enterprise LTSC( 2019)?$'; preferredIndex = 1
             lpPattern = $script:ClientLpPattern; ssuRequired = $true; defaultLanguages = $script:DefaultLanguageSet; packageOrder = (& $noOrder)
-            endOfSupport = '2029-01-10'; keepArchives = 3; minFreeGB = 30; spaceCheck = 'enforce'; notes = 'Needs the 1809 Language Pack ISO for languages. SSU KB5005112 goes in PATCHES\SSU. Catalog search strings under catalogSearch are best-effort - verify at catalog.update.microsoft.com before relying on automatic downloads.'; catalogSearch = [ordered]@{ LCU = [ordered]@{ search = 'Windows 10 Version 1809'; architecture = 'x64'; excludePreview = $true; buildFilter = ''; checkpointKBs = @() }; NetCU = [ordered]@{ search = @('Cumulative Update for .NET Framework 3.5 and 4.8 for Windows 10 Version 1809', 'Cumulative Update for .NET Framework 3.5 and 4.7.2 for Windows 10 Version 1809'); architecture = 'x64'; excludePreview = $true; buildFilter = ''; checkpointKBs = @() }; SafeOS = [ordered]@{ search = 'Safe OS Dynamic Update for Windows 10 Version 1809'; architecture = 'x64'; excludePreview = $true; buildFilter = ''; checkpointKBs = @() }; SetupDU = [ordered]@{ search = 'Setup Dynamic Update for Windows 10 Version 1809'; architecture = 'x64'; excludePreview = $true; buildFilter = ''; checkpointKBs = @() } } }
+            endOfSupport = '2029-01-10'; keepArchives = 3; minFreeGB = 30; spaceCheck = 'enforce'; notes = 'Needs the 1809 Language Pack ISO for languages. SSU KB5005112 goes in PATCHES\SSU. Catalog search strings under catalogSearch are best-effort - verify at catalog.update.microsoft.com before relying on automatic downloads.'; catalogSearch = [ordered]@{ LCU = [ordered]@{ search = 'Cumulative Update for Windows 10 Version 1809 for x64-based Systems'; architecture = 'x64'; excludePreview = $true; buildFilter = '^\d{4}-\d{2} Cumulative Update for Windows 10 Version 1809'; checkpointKBs = @() }; NetCU = [ordered]@{ search = 'Cumulative Update for .NET Framework 3.5, 4.7.2 and 4.8 for Windows 10 Version 1809 for x64'; architecture = 'x64'; excludePreview = $true; buildFilter = '^\d{4}-\d{2} Cumulative Update for \.NET Framework 3\.5, 4\.7\.2 and 4\.8 for Windows 10 Version 1809'; checkpointKBs = @() }; SafeOS = [ordered]@{ search = 'Safe OS Dynamic Update for Windows 10 Version 1809'; architecture = 'x64'; excludePreview = $true; buildFilter = ''; checkpointKBs = @() }; SetupDU = [ordered]@{ search = 'Setup Dynamic Update for Windows 10 Version 1809'; architecture = 'x64'; excludePreview = $true; buildFilter = ''; checkpointKBs = @() } } }
         [ordered]@{ schemaVersion = 1; name = 'Windows 10 IoT Enterprise LTSC 2021'; sortOrder = 20; folder = 'Win10_IoT_Enterprise_LTSC_2021'; altFolders = @('Win10_IOT_Enterprise_LTSC_2021')
             serviceAllIndexes = $false; editionRegex = '(?i)^Windows 10 IoT Enterprise LTSC( 2021)?$'; preferredIndex = 1
             lpPattern = $script:ClientLpPattern; ssuRequired = $true; defaultLanguages = $script:DefaultLanguageSet; packageOrder = (& $noOrder)
-            endOfSupport = '2032-01-14'; keepArchives = 3; minFreeGB = 30; spaceCheck = 'enforce'; notes = 'SSU ssu-19041.3562-x64.msu goes in PATCHES\SSU. Catalog search strings under catalogSearch are best-effort - verify at catalog.update.microsoft.com before relying on automatic downloads.'; catalogSearch = [ordered]@{ LCU = [ordered]@{ search = '21H2'; architecture = 'x64'; excludePreview = $true; buildFilter = ''; checkpointKBs = @() }; NetCU = [ordered]@{ search = 'Cumulative Update for .NET Framework Windows 10.0 21H2'; architecture = 'x64'; excludePreview = $true; buildFilter = ''; checkpointKBs = @() }; SafeOS = [ordered]@{ search = 'Safe OS Dynamic Update for Windows 10 Version 21H2'; architecture = 'x64'; excludePreview = $true; buildFilter = ''; checkpointKBs = @() }; SetupDU = [ordered]@{ search = 'Setup Dynamic Update for Windows 10 Version 21H2'; architecture = 'x64'; excludePreview = $true; buildFilter = ''; checkpointKBs = @() } } }
+            endOfSupport = '2032-01-14'; keepArchives = 3; minFreeGB = 30; spaceCheck = 'enforce'; notes = 'SSU ssu-19041.3562-x64.msu goes in PATCHES\SSU. Catalog search strings under catalogSearch are best-effort - verify at catalog.update.microsoft.com before relying on automatic downloads.'; catalogSearch = [ordered]@{ LCU = [ordered]@{ search = 'Cumulative Update for Windows 10 Version 21H2 for x64-based Systems'; architecture = 'x64'; excludePreview = $true; buildFilter = '^\d{4}-\d{2} Cumulative Update for Windows 10 Version 21H2'; checkpointKBs = @() }; NetCU = [ordered]@{ search = 'Cumulative Update for .NET Framework Windows 10.0 21H2'; architecture = 'x64'; excludePreview = $true; buildFilter = ''; checkpointKBs = @() }; SafeOS = [ordered]@{ search = 'Safe OS Dynamic Update for Windows 10 Version 21H2'; architecture = 'x64'; excludePreview = $true; buildFilter = ''; checkpointKBs = @() }; SetupDU = [ordered]@{ search = 'Setup Dynamic Update for Windows 10 Version 21H2'; architecture = 'x64'; excludePreview = $true; buildFilter = ''; checkpointKBs = @() } } }
         [ordered]@{ schemaVersion = 1; name = 'Windows 10 Enterprise LTSC 2021 (KMS)'; sortOrder = 30; folder = 'Win10_Enterprise_LTSC_2021_KMS'; altFolders = @()
             serviceAllIndexes = $false; editionRegex = '(?i)^Windows 10 Enterprise LTSC( 2021)?$'; preferredIndex = 1
             lpPattern = $script:ClientLpPattern; ssuRequired = $true; defaultLanguages = $script:DefaultLanguageSet; packageOrder = (& $noOrder)
-            endOfSupport = '2027-01-13'; keepArchives = 3; minFreeGB = 30; spaceCheck = 'enforce'; notes = 'SSU ssu-19041.3562-x64.msu goes in PATCHES\SSU. Support ends 2027-01-13; plan the replacement. Catalog search strings under catalogSearch are best-effort - verify at catalog.update.microsoft.com before relying on automatic downloads.'; catalogSearch = [ordered]@{ LCU = [ordered]@{ search = '21H2'; architecture = 'x64'; excludePreview = $true; buildFilter = ''; checkpointKBs = @() }; NetCU = [ordered]@{ search = 'Cumulative Update for .NET Framework Windows 10.0 21H2'; architecture = 'x64'; excludePreview = $true; buildFilter = ''; checkpointKBs = @() }; SafeOS = [ordered]@{ search = 'Safe OS Dynamic Update for Windows 10 Version 21H2'; architecture = 'x64'; excludePreview = $true; buildFilter = ''; checkpointKBs = @() }; SetupDU = [ordered]@{ search = 'Setup Dynamic Update for Windows 10 Version 21H2'; architecture = 'x64'; excludePreview = $true; buildFilter = ''; checkpointKBs = @() } } }
+            endOfSupport = '2027-01-13'; keepArchives = 3; minFreeGB = 30; spaceCheck = 'enforce'; notes = 'SSU ssu-19041.3562-x64.msu goes in PATCHES\SSU. Support ends 2027-01-13; plan the replacement. Catalog search strings under catalogSearch are best-effort - verify at catalog.update.microsoft.com before relying on automatic downloads.'; catalogSearch = [ordered]@{ LCU = [ordered]@{ search = 'Cumulative Update for Windows 10 Version 21H2 for x64-based Systems'; architecture = 'x64'; excludePreview = $true; buildFilter = '^\d{4}-\d{2} Cumulative Update for Windows 10 Version 21H2'; checkpointKBs = @() }; NetCU = [ordered]@{ search = 'Cumulative Update for .NET Framework Windows 10.0 21H2'; architecture = 'x64'; excludePreview = $true; buildFilter = ''; checkpointKBs = @() }; SafeOS = [ordered]@{ search = 'Safe OS Dynamic Update for Windows 10 Version 21H2'; architecture = 'x64'; excludePreview = $true; buildFilter = ''; checkpointKBs = @() }; SetupDU = [ordered]@{ search = 'Setup Dynamic Update for Windows 10 Version 21H2'; architecture = 'x64'; excludePreview = $true; buildFilter = ''; checkpointKBs = @() } } }
         [ordered]@{ schemaVersion = 1; name = 'Windows 11 Enterprise 24H2'; sortOrder = 40; folder = 'Win11_Enterprise_24H2'; altFolders = @('Win11Enterprise_24H2')
             serviceAllIndexes = $false; editionRegex = '(?i)^Windows 11 Enterprise$'; preferredIndex = 3
             lpPattern = $script:ClientLpPattern; ssuRequired = $false; defaultLanguages = @(); packageOrder = (& $noOrder)
-            endOfSupport = ''; keepArchives = 3; minFreeGB = 30; spaceCheck = 'enforce'; notes = 'English only. Support end date not yet checked against the Microsoft lifecycle page. Catalog search strings under catalogSearch are best-effort - verify at catalog.update.microsoft.com before relying on automatic downloads.'; catalogSearch = [ordered]@{ LCU = [ordered]@{ search = 'Windows 11, version 24H2'; architecture = 'x64'; excludePreview = $true; buildFilter = ''; checkpointKBs = @() }; SafeOS = [ordered]@{ search = 'Safe OS Dynamic Update for Windows 11, version 24H2'; architecture = 'x64'; excludePreview = $true; buildFilter = ''; checkpointKBs = @() }; SetupDU = [ordered]@{ search = 'Setup Dynamic Update for Windows 11, version 24H2'; architecture = 'x64'; excludePreview = $true; buildFilter = ''; checkpointKBs = @() } } }
+            endOfSupport = ''; keepArchives = 3; minFreeGB = 30; spaceCheck = 'enforce'; notes = 'English only. Support end date not yet checked against the Microsoft lifecycle page. Catalog search strings under catalogSearch are best-effort - verify at catalog.update.microsoft.com before relying on automatic downloads.'; catalogSearch = [ordered]@{ LCU = [ordered]@{ search = 'Windows 11, version 24H2'; architecture = 'x64'; excludePreview = $true; buildFilter = '^\d{4}-\d{2} Cumulative Update for Windows 11,? version 24H2'; checkpointKBs = @() }; SafeOS = [ordered]@{ search = 'Safe OS Dynamic Update for Windows 11, version 24H2'; architecture = 'x64'; excludePreview = $true; buildFilter = ''; checkpointKBs = @() }; SetupDU = [ordered]@{ search = 'Setup Dynamic Update for Windows 11, version 24H2'; architecture = 'x64'; excludePreview = $true; buildFilter = ''; checkpointKBs = @() } } }
         [ordered]@{ schemaVersion = 1; name = 'Windows Server 2022'; sortOrder = 50; folder = 'Windows_Server_2022'; altFolders = @()
             serviceAllIndexes = $true; editionRegex = ''; preferredIndex = 0
             lpPattern = $script:ServerLpPattern; ssuRequired = $false; defaultLanguages = @(); packageOrder = (& $noOrder)
-            endOfSupport = ''; keepArchives = 3; minFreeGB = 60; spaceCheck = 'enforce'; notes = 'Every index is serviced and recombined. English only. Support end date not yet checked. Catalog search strings under catalogSearch are best-effort - verify at catalog.update.microsoft.com before relying on automatic downloads.'; catalogSearch = [ordered]@{ LCU = [ordered]@{ search = 'Cumulative Update for Microsoft server operating system version 21H2'; architecture = 'x64'; excludePreview = $true; buildFilter = ''; checkpointKBs = @() }; NetCU = [ordered]@{ search = 'Cumulative Update for .NET Framework Windows Server 2022'; architecture = 'x64'; excludePreview = $true; buildFilter = ''; checkpointKBs = @() }; SafeOS = [ordered]@{ search = 'Safe OS Dynamic Update for Windows Server 2022'; architecture = 'x64'; excludePreview = $true; buildFilter = ''; checkpointKBs = @() }; SetupDU = [ordered]@{ search = 'Setup Dynamic Update for Windows Server 2022'; architecture = 'x64'; excludePreview = $true; buildFilter = ''; checkpointKBs = @() } } }
+            endOfSupport = ''; keepArchives = 3; minFreeGB = 60; spaceCheck = 'enforce'; notes = 'Every index is serviced and recombined. English only. Support end date not yet checked. Catalog search strings under catalogSearch are best-effort - verify at catalog.update.microsoft.com before relying on automatic downloads.'; catalogSearch = [ordered]@{ LCU = [ordered]@{ search = 'Cumulative Update for Microsoft server operating system version 21H2'; architecture = 'x64'; excludePreview = $true; buildFilter = '^\d{4}-\d{2} Cumulative Update for Microsoft server operating system,? version 21H2'; checkpointKBs = @() }; NetCU = [ordered]@{ search = 'Cumulative Update for .NET Framework Windows Server 2022'; architecture = 'x64'; excludePreview = $true; buildFilter = ''; checkpointKBs = @() }; SafeOS = [ordered]@{ search = 'Safe OS Dynamic Update for Windows Server 2022'; architecture = 'x64'; excludePreview = $true; buildFilter = ''; checkpointKBs = @() }; SetupDU = [ordered]@{ search = 'Setup Dynamic Update for Windows Server 2022'; architecture = 'x64'; excludePreview = $true; buildFilter = ''; checkpointKBs = @() } } }
     )
 }
 function Get-ProfileValue {
@@ -492,13 +502,35 @@ function Resolve-CatalogSearch {
     if ($Build) { return ($Search -replace '\{build\}', $Build -replace '\{version\}', $Build) }
     return $Search
 }
+function Get-ArchFromText {
+    # Architecture named in a catalog title or a downloaded file name ('x64', 'x86', 'arm64'), or '' when none is.
+    # Catalog titles: "... for x64-based Systems", "... for x64", "... for ARM64-based Systems"; file names:
+    # "windows10.0-kb5126043-x64.msu". The combined .NET CU's x86 entry names no architecture in its title at all.
+    param([string]$Text)
+    if ($Text -match '(?i)(?<![a-z0-9])(arm64|aarch64)(?![a-z0-9])') { return 'arm64' }
+    if ($Text -match '(?i)(?<![a-z0-9])(x64|amd64)(?![a-z0-9])') { return 'x64' }
+    if ($Text -match '(?i)(?<![a-z0-9])(x86|i386)(?![a-z0-9])') { return 'x86' }
+    return ''
+}
+function Test-ArchMatch {
+    # $true when $Found (from Get-ArchFromText or a result property) satisfies the rule's architecture. amd64 = x64.
+    param([string]$Wanted, [string]$Found)
+    $norm = { param($a) switch -Regex ([string]$a) { '(?i)^(x64|amd64)$' { 'x64' } '(?i)^(arm64|aarch64)$' { 'arm64' } '(?i)^(x86|i386)$' { 'x86' } default { ([string]$a).ToLowerInvariant() } } }
+    return ((& $norm $Wanted) -eq (& $norm $Found))
+}
 function Test-CatalogCandidate {
     # Filters one Get-MSCatalogUpdate result against a resolved catalogSearch rule. Reads whatever property names the
     # installed module version actually exposes (via Get-ProfileValue, which is name-tolerant) instead of assuming one.
+    # Architecture: real MSCatalogLTS results have no Architecture property (confirmed on Terry's machine), and the
+    # catalog search matches words loosely ("for x64" in the search still returns the x86 entry), so when the result
+    # has no such property the title must name the wanted architecture - a title naming none is rejected too,
+    # because that is exactly how the combined .NET CU's x86 entry looks. Set architecture to '' in the profile to
+    # switch the check off for a product whose titles never name one.
     param([Parameter(Mandatory)]$Result, [Parameter(Mandatory)]$Rule)
-    $arch = [string](Get-ProfileValue $Result 'Architecture' (Get-ProfileValue $Result 'Arch' ''))
-    if ($Rule.architecture -and $arch -and ($arch -notmatch [regex]::Escape($Rule.architecture))) { return $false }
     $title = [string](Get-ProfileValue $Result 'Title' '')
+    $arch = [string](Get-ProfileValue $Result 'Architecture' (Get-ProfileValue $Result 'Arch' ''))
+    if (-not $arch) { $arch = Get-ArchFromText $title }
+    if ($Rule.architecture -and -not (Test-ArchMatch $Rule.architecture $arch)) { return $false }
     if ($Rule.excludePreview -and $title -match '(?i)preview') { return $false }
     if ($Rule.buildFilter -and $title -notmatch $Rule.buildFilter) { return $false }
     return $true
@@ -536,24 +568,28 @@ function Search-CatalogCandidates {
     return @($filtered | Sort-Object { Get-CatalogDate $_ } -Descending)
 }
 function Save-CatalogCandidate {
-    # Downloads one catalog result into $Destination via Save-MSCatalogUpdate. The real cmdlet (confirmed from its
-    # source) names the file from the catalog's own download URL, not a generic name, so no renaming is needed here -
-    # this just locates whatever file appeared. -AcceptMultiFileUpdates and -Confirm are passed only when the
-    # installed module version declares them: AcceptMultiFileUpdates matters because an update tied to more than one
-    # download would otherwise need interactive input, which a background run can never provide.
+    # Downloads one catalog result into $Destination via Save-MSCatalogUpdate and returns the full path of EVERY file
+    # it produced. One catalog entry can carry several files: the combined .NET CU for 1809 ("3.5, 4.7.2 and 4.8",
+    # KB5126144) downloads windows10.0-kb5126043-x64.msu (3.5/4.7.2) and windows10.0-kb5126048-x64-ndp48.msu (4.8),
+    # each named after its own component KB, not the entry's KB. The real cmdlet names files from the download URL,
+    # so no renaming is needed. -DownloadAll / -AcceptMultiFileUpdates / -Confirm are passed only when the installed
+    # module declares them (-DownloadAll confirmed on Terry's machine); without them a multi-file entry would need
+    # interactive input, which a background run can never provide. Returns $null when no new or re-written file
+    # appeared; the caller then logs a WARN and leaves the folder unpruned rather than guessing which file is current.
     param([Parameter(Mandatory)]$Result, [Parameter(Mandatory)][string]$Destination)
     Ensure-Directory $Destination
-    $before = @(Get-ChildItem -LiteralPath $Destination -File -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
+    $before = @{}
+    foreach ($f in @(Get-ChildItem -LiteralPath $Destination -File -ErrorAction SilentlyContinue)) { $before[$f.Name] = $f.LastWriteTimeUtc }
     $cmd = Get-Command Save-MSCatalogUpdate -ErrorAction Stop
     $params = @{ Update = $Result; Destination = $Destination }
+    if ($cmd.Parameters.ContainsKey('DownloadAll')) { $params['DownloadAll'] = $true }
     if ($cmd.Parameters.ContainsKey('AcceptMultiFileUpdates')) { $params['AcceptMultiFileUpdates'] = $true }
     if ($cmd.Parameters.ContainsKey('Confirm')) { $params['Confirm'] = $false }
     Save-MSCatalogUpdate @params -ErrorAction Stop | Out-Null
     $after = @(Get-ChildItem -LiteralPath $Destination -File -ErrorAction SilentlyContinue)
-    $new = @($after | Where-Object { $before -notcontains $_.Name } | Sort-Object LastWriteTime -Descending)
-    if ($new.Count -gt 0) { return $new[0].FullName }
-    $newest = @($after | Sort-Object LastWriteTime -Descending | Select-Object -First 1)
-    if ($newest.Count -gt 0) { return $newest[0].FullName }
+    # New or re-written (same name, newer timestamp) files are this download's output.
+    $new = @($after | Where-Object { -not $before.ContainsKey($_.Name) -or $_.LastWriteTimeUtc -gt $before[$_.Name] } | Sort-Object Name)
+    if ($new.Count -gt 0) { return @($new | ForEach-Object { $_.FullName }) }
     return $null
 }
 function Update-PatchCache {
@@ -639,11 +675,24 @@ function Invoke-PatchAcquisition {
             if ($dryRun) { continue }
 
             $folder = Join-Path $Paths.Patches $folders[$class]
-            $saved = Save-CatalogCandidate -Result $best -Destination $folder
-            if (-not $saved) { Write-Log "$class`: download reported success but no file could be located in $folder (search '$term')." 'WARN'; continue }
-            Add-ChangeEvent -Category $class -Item (Split-Path $saved -Leaf) -Target $folder -Kb $kb -Detail 'downloaded by acquisition layer'
-            $downloaded.Add([pscustomobject]@{ Class = $class; File = $saved; Kb = $kb })
-            $classFilesKept.Add($saved)
+            $savedFiles = @(Save-CatalogCandidate -Result $best -Destination $folder | Where-Object { $_ })
+            if ($savedFiles.Count -eq 0) { Write-Log "$class`: download reported success but no file could be located in $folder (search '$term')." 'WARN'; continue }
+            if ($savedFiles.Count -gt 1) { Write-Log "$class`: catalog entry$(if ($kb) { " $kb" }) downloaded $($savedFiles.Count) files: $(($savedFiles | ForEach-Object { Split-Path $_ -Leaf }) -join ', ')" }
+            foreach ($saved in $savedFiles) {
+                $leaf = Split-Path $saved -Leaf
+                # Backstop for the title check: never keep a file whose name says it is for another architecture.
+                $fileArch = Get-ArchFromText $leaf
+                if ($ruleArch -and $fileArch -and -not (Test-ArchMatch $ruleArch $fileArch)) {
+                    Write-Log "$class`: removing $leaf - its name says $fileArch but the profile asks for $ruleArch." 'WARN'
+                    Remove-Item -LiteralPath $saved -Force -ErrorAction SilentlyContinue
+                    continue
+                }
+                $fileKb = Get-KbFromName $leaf
+                $detail = if ($kb -and $fileKb -and $fileKb -ne $kb) { "downloaded by acquisition layer (part of catalog entry $kb)" } else { 'downloaded by acquisition layer' }
+                Add-ChangeEvent -Category $class -Item $leaf -Target $folder -Kb $(if ($fileKb) { $fileKb } else { $kb }) -Detail $detail
+                $downloaded.Add([pscustomobject]@{ Class = $class; File = $saved; Kb = $(if ($fileKb) { $fileKb } else { $kb }); EntryKb = $kb })
+                $classFilesKept.Add($saved)
+            }
         }
         if (-not $dryRun -and $classFilesKept.Count -gt 0) {
             $folder = Join-Path $Paths.Patches $folders[$class]
@@ -703,7 +752,8 @@ function Add-Packages {
         [AllowNull()][object[]]$Packages,
         [Parameter(Mandatory)][string]$Target,
         [string]$Label = 'package',
-        [switch]$IgnoreCombinedLcu7007e
+        [switch]$IgnoreCombinedLcu7007e,
+        [switch]$SkipNotApplicable
     )
     $dl = $script:DismLogArgs
     $list = @($Packages | Where-Object { $_ })
@@ -719,6 +769,10 @@ function Add-Packages {
         catch {
             if ($IgnoreCombinedLcu7007e -and $_.Exception.Message -match '0x8007007e') {
                 Write-Log 'Known combined-LCU error 0x8007007e encountered; continuing.' 'WARN'
+            } elseif ($SkipNotApplicable -and $_.Exception.Message -match '(?i)0x800f081e|not applicable') {
+                # CBS_E_NOT_APPLICABLE: e.g. the .NET 4.8 part of a combined .NET CU on an image that only has 4.7.2.
+                Write-Log "Skipped $Label $(Split-Path $pkg.FullName -Leaf): not applicable to $Target (0x800f081e)." 'WARN'
+                Add-ChangeEvent -Category (Get-EventCategory $Label) -Item (Split-Path $pkg.FullName -Leaf) -Target $Target -Kb (Get-KbFromName $pkg.FullName) -Detail "$Label - skipped, not applicable to this image"
             } else { throw }
         }
     }
@@ -938,7 +992,7 @@ function Service-InstallIndex {
             Enable-WindowsOptionalFeature -Path $Paths.MainMount -FeatureName NetFx3 -All -Source $sxs -LimitAccess @dl -ErrorAction Stop | Out-Null
             Add-ChangeEvent -Category 'NetFx3' -Item 'NetFx3 enabled' -Target $target
         }
-        Add-Packages $Paths.MainMount $Packages.NetCU $target -Label '.NET CU'
+        Add-Packages $Paths.MainMount $Packages.NetCU $target -Label '.NET CU' -SkipNotApplicable
 
         Dismount-WindowsImage -Path $Paths.MainMount -Save -CheckIntegrity @dl -ErrorAction Stop | Out-Null
     } catch {
