@@ -211,6 +211,22 @@ $net3 = @(Get-ChildItem (Join-Path $paths3.Patches 'NETCU') -File | Select-Objec
 Check 'both files of the entry kept (4.7.2 and 4.8 parts); the previous month''s file pruned' (($net3 -join ',') -eq 'windows10.0-kb5126043-x64.msu,windows10.0-kb5126048-x64-ndp48.msu')
 Check 'Downloaded lists each file under its own KB, with the catalog entry KB alongside' ((@($resReal.Downloaded | ForEach-Object { $_.Kb } | Sort-Object) -join ',') -eq 'KB5126043,KB5126048' -and @($resReal.Downloaded | Where-Object { $_.EntryKb -eq 'KB5126144' }).Count -eq 2)
 
+# Safe OS DU vs Setup DU on 1809: same title shape, told apart only by Products (Terry, 2026-09-23: the Safe OS DU is
+# '2026-08 Dynamic Update for Windows 10 Version 1809 for x64-based Systems (KB5120247)', products 'Windows 10 and
+# later Dynamic Update, Windows Safe OS Dynamic Update'). The Setup DU's Products value is assumed, not yet seen.
+$tSafe = '2026-08 Dynamic Update for Windows 10 Version 1809 for x64-based Systems (KB5120247)'
+$tSetup = '2026-08 Dynamic Update for Windows 10 Version 1809 for x64-based Systems (KB5120250)'
+$rSafe = Real-Result $tSafe; $rSafe.Products = 'Windows 10 and later Dynamic Update, Windows Safe OS Dynamic Update'
+$rSetup = Real-Result $tSetup; $rSetup.Products = 'Windows 10 and later Dynamic Update'
+$rDynLcu = Real-Result $tDynLcu; $rDynLcu.Products = 'Windows 10 and later Dynamic Update'
+$ruleSafe = [pscustomobject]@{ architecture = 'x64'; excludePreview = $true; buildFilter = $b1809.CatalogSearch['SafeOS'].buildFilter; productFilter = $b1809.CatalogSearch['SafeOS'].productFilter; productExclude = $b1809.CatalogSearch['SafeOS'].productExclude }
+$ruleSetup = [pscustomobject]@{ architecture = 'x64'; excludePreview = $true; buildFilter = $b1809.CatalogSearch['SetupDU'].buildFilter; productFilter = $b1809.CatalogSearch['SetupDU'].productFilter; productExclude = $b1809.CatalogSearch['SetupDU'].productExclude }
+Check 'built-in 1809 SafeOS rule: accepts the real Safe OS DU, rejects the Setup DU and the Dynamic Cumulative Update' ((Test-CatalogCandidate -Result $rSafe -Rule $ruleSafe) -and -not (Test-CatalogCandidate -Result $rSetup -Rule $ruleSafe) -and -not (Test-CatalogCandidate -Result $rDynLcu -Rule $ruleSafe))
+Check 'built-in 1809 SetupDU rule: accepts the Setup DU, rejects the Safe OS DU and the Dynamic Cumulative Update' ((Test-CatalogCandidate -Result $rSetup -Rule $ruleSetup) -and -not (Test-CatalogCandidate -Result $rSafe -Rule $ruleSetup) -and -not (Test-CatalogCandidate -Result $rDynLcu -Rule $ruleSetup))
+Check 'Products given as a list is matched too' (Test-CatalogCandidate -Result ([pscustomobject]@{ Title = $tSafe; Products = @('Windows 10 and later Dynamic Update', 'Windows Safe OS Dynamic Update') }) -Rule $ruleSafe)
+$threw = $false; try { ConvertTo-OsProfile -Data ([ordered]@{ name = 'X'; folder = 'X'; editionRegex = 'a'; preferredIndex = 1; catalogSearch = [ordered]@{ SafeOS = [ordered]@{ search = 'a'; productFilter = '([bad' } } }) } catch { $threw = $true; $mRx = $_.Exception.Message }
+Check 'an invalid productFilter regex is refused when the profile loads' ($threw -and $mRx -like "*productFilter' is not a valid regular expression*")
+
 # A class whose search returns nothing must not stop the run (Terry's real LTSC 2019 dry run: the Safe OS DU search
 # returned 0 results and the run died on '.Count' under StrictMode); later classes still run and it is reported.
 Reset-Test
