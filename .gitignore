@@ -24,11 +24,21 @@ INSTRUCTIONS.md.bak
 Thumbs.db
 .DS_Store
 *.swp
-*.esd
+
+# Windows images and update packages -- far too large for GitHub (100 MB limit)
 *.esd
 *.wim
 *.iso
 *.swm
 *.cab
 *.msu
-testkit/ptest/src/
+
+# Test kit scratch output -- each suite deletes and recreates its folder on
+# every run (the 2 GB sparse install.esd under ptest came from profiles.ps1),
+# and engine_only.ps1 is re-extracted from the main script by harness/mocks
+testkit/acq/
+testkit/e2e/
+testkit/ptest/
+testkit/rt/
+testkit/tst/
+testkit/engine_only.ps1
