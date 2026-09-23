@@ -1,0 +1,28 @@
+Conversation excerpt: .NET CU search fix for Windows 10 LTSC 2019 (1809)
+Saved: 2026-09-23
+
+---
+
+[Terry]
+
+.net patch search for the LTSC 1809 failed.  These are the search terms I used that returned the two correct.net cu patches: 
+ Cumulative Update for .NET Framework 3.5 and 4.8 for Windows 10 Version 1809
+Cumulative Update for .NET Framework 3.5 and 4.7.2 for Windows 10 Version 1809
+
+---
+
+[Claude]
+
+That wasn't a search-string typo -- it was a real gap in the design. Here's what was going on and what I fixed.
+
+Windows 10 1809's .NET CU isn't a single update: Microsoft ships two parallel ones side by side ("3.5 and 4.7.2" and "3.5 and 4.8"), because a 1809 image can have either .NET Framework version already on it. The acquisition layer only ever searched one term per class and kept only the single newest download -- so even with the right search string, it could only ever have found one of the two files you needed, and would have deleted the other one on the next run.
+
+I extended the design to support a class having more than one search term:
+
+catalogSearch.<class>.search in a profile can now be either a single string (unchanged, everything else keeps working exactly as before) or an array of strings. When it's an array, the download step searches and downloads each term independently, and keeps all of that run's downloads together instead of pruning down to just one.
+
+I updated the LTSC 2019 (1809) profile's NetCU rule to use the exact two search strings you found. Added 8 new tests specifically covering this (array parsing, the multi-file keep/prune logic, and a full download-both-files-and-prune-only-the-stale-one integration test) -- full suite is now 211 checks, all passing.
+
+One thing worth checking when you get to the LTSC 2021 and Server 2022 profiles: it's not yet confirmed whether they need the same two-part .NET CU split, or whether a single search term is enough there (later Windows 10 versions may ship with 4.8 as the only baseline). I flagged this as an open point in TODO.md rather than guessing -- if you hit the same empty-result problem there, the fix is just changing that profile's search to an array the same way.
+
+Sent you the updated script above -- TODO.md and the test kit are updated on your desktop and re-synced here too.

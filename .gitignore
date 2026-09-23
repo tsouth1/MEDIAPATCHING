@@ -24,3 +24,11 @@ INSTRUCTIONS.md.bak
 Thumbs.db
 .DS_Store
 *.swp
+*.esd
+*.esd
+*.wim
+*.iso
+*.swm
+*.cab
+*.msu
+testkit/ptest/src/

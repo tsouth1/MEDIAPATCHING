@@ -15,6 +15,7 @@ These checks exercise the engine without real images or a real DISM: the DISM cm
 | e2e.ps1 | Whole-run scenarios E1-E11 (languages, Server multi-index, preflight, IoT edition selection, profiles through a run, archive, free space) |
 | runner.ps1 | The background runspace runner: queue messages, result hand-back, cancel, errors, a real preflight inside a runspace |
 | profiles.ps1 | JSON profiles, order manifest, support status, archive, free-space check |
+| acquisition.ps1 | Step 5 (acquisition layer): catalogSearch profile parsing/validation, search-result filtering, checkpoint-chain pruning, and a mocked Invoke-PatchAcquisition dry-run + real-download pass (never touches PATCHES\SSU) |
 | lint2.ps1 | Windows PowerShell 5.1 syntax-compatibility lint (needs PSScriptAnalyzer) |
 | lint.ps1 | General PSScriptAnalyzer pass (style findings such as positional parameters are known and accepted) |
 
