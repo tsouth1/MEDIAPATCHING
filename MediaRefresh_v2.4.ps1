@@ -32,6 +32,9 @@
                skipped with a WARN instead of failing the whole servicing run.
       * Fixed: a catalog search with no match stopped the whole download with "The property 'Count' cannot be found"
                (Terry's first real dry run, LTSC 2019, Safe OS DU search); it is now reported as a skipped class.
+      * Added: catalogSearch rules take productFilter / productExclude (regular expressions against the catalog
+               Products field). The 1809 Safe OS DU is titled plain "Dynamic Update for Windows 10 Version 1809" and is
+               only marked as Safe OS by its Products entry; the 1809 SafeOS/SetupDU rules now use that.
       * Changed: the built-in LCU rules have a title filter so a .NET CU or Dynamic Update released the same day can
                no longer be picked as the LCU; the 1809 .NET CU rule searches for the combined entry.
     Version 2.2.0 (draft - test against non-production images first). v2.1 remains the build under real-image test.
@@ -148,7 +151,7 @@ function Get-BuiltInProfileData {
         [ordered]@{ schemaVersion = 1; name = 'Windows 10 Enterprise LTSC 2019 (IoT)'; sortOrder = 10; folder = 'Win10_Enterprise_LTSC_2019'; altFolders = @()
             serviceAllIndexes = $false; editionRegex = '(?i)^Windows 10 (IoT )?Enterprise LTSC( 2019)?$'; preferredIndex = 1
             lpPattern = $script:ClientLpPattern; ssuRequired = $true; defaultLanguages = $script:DefaultLanguageSet; packageOrder = (& $noOrder)
-            endOfSupport = '2029-01-10'; keepArchives = 3; minFreeGB = 30; spaceCheck = 'enforce'; notes = 'Needs the 1809 Language Pack ISO for languages. SSU KB5005112 goes in PATCHES\SSU. Catalog search strings under catalogSearch are best-effort - verify at catalog.update.microsoft.com before relying on automatic downloads.'; catalogSearch = [ordered]@{ LCU = [ordered]@{ search = 'Cumulative Update for Windows 10 Version 1809 for x64-based Systems'; architecture = 'x64'; excludePreview = $true; buildFilter = '^\d{4}-\d{2} Cumulative Update for Windows 10 Version 1809'; checkpointKBs = @() }; NetCU = [ordered]@{ search = 'Cumulative Update for .NET Framework 3.5, 4.7.2 and 4.8 for Windows 10 Version 1809 for x64'; architecture = 'x64'; excludePreview = $true; buildFilter = '^\d{4}-\d{2} Cumulative Update for \.NET Framework 3\.5, 4\.7\.2 and 4\.8 for Windows 10 Version 1809'; checkpointKBs = @() }; SafeOS = [ordered]@{ search = 'Safe OS Dynamic Update for Windows 10 Version 1809'; architecture = 'x64'; excludePreview = $true; buildFilter = ''; checkpointKBs = @() }; SetupDU = [ordered]@{ search = 'Setup Dynamic Update for Windows 10 Version 1809'; architecture = 'x64'; excludePreview = $true; buildFilter = ''; checkpointKBs = @() } } }
+            endOfSupport = '2029-01-10'; keepArchives = 3; minFreeGB = 30; spaceCheck = 'enforce'; notes = 'Needs the 1809 Language Pack ISO for languages. SSU KB5005112 goes in PATCHES\SSU. Catalog search strings under catalogSearch are best-effort - verify at catalog.update.microsoft.com before relying on automatic downloads.'; catalogSearch = [ordered]@{ LCU = [ordered]@{ search = 'Cumulative Update for Windows 10 Version 1809 for x64-based Systems'; architecture = 'x64'; excludePreview = $true; buildFilter = '^\d{4}-\d{2} Cumulative Update for Windows 10 Version 1809'; checkpointKBs = @() }; NetCU = [ordered]@{ search = 'Cumulative Update for .NET Framework 3.5, 4.7.2 and 4.8 for Windows 10 Version 1809 for x64'; architecture = 'x64'; excludePreview = $true; buildFilter = '^\d{4}-\d{2} Cumulative Update for \.NET Framework 3\.5, 4\.7\.2 and 4\.8 for Windows 10 Version 1809'; checkpointKBs = @() }; SafeOS = [ordered]@{ search = 'Dynamic Update for Windows 10 Version 1809 for x64-based Systems'; architecture = 'x64'; excludePreview = $true; buildFilter = '^\d{4}-\d{2} Dynamic Update for Windows 10 Version 1809'; productFilter = 'Safe OS'; productExclude = ''; checkpointKBs = @() }; SetupDU = [ordered]@{ search = 'Dynamic Update for Windows 10 Version 1809 for x64-based Systems'; architecture = 'x64'; excludePreview = $true; buildFilter = '^\d{4}-\d{2} Dynamic Update for Windows 10 Version 1809'; productFilter = 'Dynamic Update'; productExclude = 'Safe OS'; checkpointKBs = @() } } }
         [ordered]@{ schemaVersion = 1; name = 'Windows 10 IoT Enterprise LTSC 2021'; sortOrder = 20; folder = 'Win10_IoT_Enterprise_LTSC_2021'; altFolders = @('Win10_IOT_Enterprise_LTSC_2021')
             serviceAllIndexes = $false; editionRegex = '(?i)^Windows 10 IoT Enterprise LTSC( 2021)?$'; preferredIndex = 1
             lpPattern = $script:ClientLpPattern; ssuRequired = $true; defaultLanguages = $script:DefaultLanguageSet; packageOrder = (& $noOrder)
@@ -235,7 +238,13 @@ function ConvertTo-OsProfile {
                 architecture = [string](Get-ProfileValue $ruleData 'architecture' 'x64')
                 excludePreview = [bool](Get-ProfileValue $ruleData 'excludePreview' $true)
                 buildFilter = [string](Get-ProfileValue $ruleData 'buildFilter' '')
+                productFilter = [string](Get-ProfileValue $ruleData 'productFilter' '')
+                productExclude = [string](Get-ProfileValue $ruleData 'productExclude' '')
                 checkpointKBs = $chainKbs
+            }
+            foreach ($rk in @('buildFilter', 'productFilter', 'productExclude')) {
+                $rx = $catalogSearch[$canon][$rk]
+                if ($rx) { try { [void][regex]::new($rx) } catch { throw "'catalogSearch.$canon.$rk' is not a valid regular expression: $($_.Exception.Message)" } }
             }
         }
     }
@@ -535,6 +544,17 @@ function Test-CatalogCandidate {
     if ($Rule.architecture -and -not (Test-ArchMatch $Rule.architecture $arch)) { return $false }
     if ($Rule.excludePreview -and $title -match '(?i)preview') { return $false }
     if ($Rule.buildFilter -and $title -notmatch $Rule.buildFilter) { return $false }
+    # Products (a string such as "Windows 10, Windows 10 LTSB", or a list): some classes can only be told apart here.
+    # The 1809 Safe OS DU is titled plain "Dynamic Update for Windows 10 Version 1809 ..." - its Products entry
+    # "Windows Safe OS Dynamic Update" is what marks it (Terry, 2026-09-23). Read by name so a rule object without
+    # these keys still works under StrictMode.
+    $productFilter = [string](Get-ProfileValue $Rule 'productFilter' '')
+    $productExclude = [string](Get-ProfileValue $Rule 'productExclude' '')
+    if ($productFilter -or $productExclude) {
+        $products = (@(Get-ProfileValue $Result 'Products' '') | ForEach-Object { [string]$_ }) -join ', '
+        if ($productFilter -and $products -notmatch $productFilter) { return $false }
+        if ($productExclude -and $products -match $productExclude) { return $false }
+    }
     return $true
 }
 function Get-CatalogDate {
@@ -655,6 +675,8 @@ function Invoke-PatchAcquisition {
         $ruleArch = [string](Get-ProfileValue $rule 'architecture' 'x64')
         $ruleExcludePreview = [bool](Get-ProfileValue $rule 'excludePreview' $true)
         $ruleBuildFilter = [string](Get-ProfileValue $rule 'buildFilter' '')
+        $ruleProductFilter = [string](Get-ProfileValue $rule 'productFilter' '')
+        $ruleProductExclude = [string](Get-ProfileValue $rule 'productExclude' '')
         $chainKbs = @(@(Get-ProfileValue $rule 'checkpointKBs' @()) | Where-Object { $_ } | ForEach-Object { ([string]$_).ToUpperInvariant() })
         if ($chainKbs.Count -gt 0) {
             Write-Log "$class checkpoint chain from the profile: $($chainKbs -join ', ') - kept alongside the downloaded file(s) when already present, not fetched separately (open point, TODO.md step 5)." 'INFO'
@@ -665,7 +687,7 @@ function Invoke-PatchAcquisition {
         $classFilesKept = [System.Collections.Generic.List[string]]::new()
         foreach ($term in $searchTerms) {
             Assert-NotCancelled
-            $ruleObj = [pscustomobject]@{ search = $term; architecture = $ruleArch; excludePreview = $ruleExcludePreview; buildFilter = $ruleBuildFilter }
+            $ruleObj = [pscustomobject]@{ search = $term; architecture = $ruleArch; excludePreview = $ruleExcludePreview; buildFilter = $ruleBuildFilter; productFilter = $ruleProductFilter; productExclude = $ruleProductExclude }
             # @() is required: a function returning an empty array hands the caller $null, and on Windows PowerShell 5.1 a
             # single result comes back as a bare object - under StrictMode .Count on either throws (seen on Terry's first
             # real dry run, LTSC 2019, when the Safe OS DU search returned nothing).
