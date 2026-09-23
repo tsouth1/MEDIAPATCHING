@@ -1,0 +1,21 @@
+﻿08:42:00 [INFO] Starting WimForge v2.4.0 patch acquisition for Windows 10 Enterprise LTSC 2019 (IoT)
+08:42:00 [INFO] Starting patch acquisition for Windows 10 Enterprise LTSC 2019 (IoT)
+08:42:00 [INFO] Mounting ISO F:\mediaRefresh\Win10_Enterprise_LTSC_2019\ISO\en_windows_10_features_on_demand_part_1_version_1809_updated_sept_2018_x64_dvd_a68fa301.iso
+08:42:02 [INFO] Dismounted ISO F:\mediaRefresh\Win10_Enterprise_LTSC_2019\ISO\en_windows_10_features_on_demand_part_1_version_1809_updated_sept_2018_x64_dvd_a68fa301.iso
+08:42:02 [INFO] Mounting ISO F:\mediaRefresh\Win10_Enterprise_LTSC_2019\ISO\en_windows_10_iot_enterprise_ltsc_2019_x64_dvd_a1aa819f.iso
+08:42:02 [INFO] Dismounted ISO F:\mediaRefresh\Win10_Enterprise_LTSC_2019\ISO\en_windows_10_iot_enterprise_ltsc_2019_x64_dvd_a1aa819f.iso
+08:42:02 [INFO] Base image build: 10.0.17763.107
+08:42:02 [INFO] Catalog search: Cumulative Update for Windows 10 Version 1809 for x64-based Systems
+08:42:04 [INFO] LCU: selected '2026-09 Cumulative Update for Windows 10 Version 1809 for x64-based Systems (KB5129238)' (KB5129238)
+08:42:09 [INFO] Removed superseded file windows10.0-kb5120238-x64_9260c045d550484393347c8505b2c7252f488ed5.msu from F:\mediaRefresh\Win10_Enterprise_LTSC_2019\PATCHES\LCU
+08:42:09 [INFO] Catalog search: Cumulative Update for .NET Framework 3.5, 4.7.2 and 4.8 for Windows 10 Version 1809 for x64
+08:42:10 [INFO] NetCU: selected '2026-09 Cumulative Update for .NET Framework 3.5, 4.7.2 and 4.8 for Windows 10 Version 1809 for x64 (KB5126144)' (KB5126144)
+08:42:12 [INFO] NetCU: catalog entry KB5126144 downloaded 2 files: windows10.0-kb5126043-x64.msu, windows10.0-kb5126048-x64-ndp48.msu
+08:42:12 [INFO] Removed superseded file windows10.0-kb5120698-x64_1113e54f2a90f3fb05723bb07fb752c21919ecf4.msu from F:\mediaRefresh\Win10_Enterprise_LTSC_2019\PATCHES\NETCU
+08:42:12 [INFO] Removed superseded file windows10.0-kb5120703-x64-ndp48_6b0e037f2ac0b74fce0c12af2c82c384bcca54d8.msu from F:\mediaRefresh\Win10_Enterprise_LTSC_2019\PATCHES\NETCU
+08:42:12 [INFO] Catalog search: Dynamic Update for Windows 10 Version 1809 for x64-based Systems
+08:42:12 [WARN] No catalog results matched for 'Dynamic Update for Windows 10 Version 1809 for x64-based Systems' after filtering (0 raw result(s)).
+08:42:12 [INFO] Catalog search: Dynamic Update for Windows 10 Version 1809 for x64-based Systems
+08:42:12 [WARN] No catalog results matched for 'Dynamic Update for Windows 10 Version 1809 for x64-based Systems' after filtering (0 raw result(s)).
+08:42:12 [WARN] Skipped SafeOS (no catalog result matched 'Dynamic Update for Windows 10 Version 1809 for x64-based Systems')
+08:42:12 [WARN] Skipped SetupDU (no catalog result matched 'Dynamic Update for Windows 10 Version 1809 for x64-based Systems')
