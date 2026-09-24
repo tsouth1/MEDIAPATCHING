@@ -2,9 +2,7 @@
 
 These checks exercise the engine without real images or a real DISM: the DISM cmdlets, ISO mounting and free-space reader are replaced by mocks, so call order, error handling, profile loading and output handling can be re-checked after every change.
 
-**Note:** in the Claude project each script is stored with an extra `.txt` (for example `e2e.ps1.txt`); remove the `.txt` when restoring them to a folder.
-
-**Run:** PowerShell 7, from the folder holding these files: `$env:MR_SCRIPT = '<path to MediaRefresh_v2.x.ps1>'; pwsh -NoProfile -File run_all.ps1`. Verified on PowerShell 7.4 on Linux. (Not the real-image test: that is task 2 in TODO.md.)
+**Run:** PowerShell 7, from this folder: `pwsh -NoProfile -File run_all.ps1`. By default every suite tests `..\MediaRefresh_v2.4.ps1`; set `$env:MR_SCRIPT` to a path to test another copy. Verified on PowerShell 7.6 on Windows (2026-09-24): 7 suites, 237 checks, all passing. Not yet run under Windows PowerShell 5.1 (TODO.md step 2A). These are mock tests only; the real-image and real-catalog checks are TODO.md step 2.
 
 | File | What it covers |
 |---|---|

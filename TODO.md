@@ -1,105 +1,57 @@
 # TODO - WimForge (Windows OS media patching)
 
-Last updated: 2026-09-23 (step 5 fixed after Terry's second real-catalog test: architecture checked from titles, multi-file catalog entries kept whole, the 1809 .NET CU switched to the combined entry, LCU title filters, not-applicable .NET parts skipped - see step 5 "Fixes after the second real-catalog test". Earlier, 2026-09-22: step 5 built, mock-tested, corrected against the real MSCatalogLTS/MSCatalog source, and extended to support classes with more than one search term after Terry's first real-catalog test against LTSC 2019; delivered as v2.4. Step 13 added: expand OS support to Windows 11 25H2, Windows 11 26H2, and Windows Server 2025.) Stable build for testing: `MediaRefresh_v2.1.ps1` (draft; mock-tested, **never run against real images or a real DISM**) and `MediaRefresh_v2.2.ps1` (step 1 only; Terry has completed one real run and real-run logs are pending). Development build: `MediaRefresh_v2.4.ps1` (steps 1, 3 and 5 done; mock-tested only, **never run against real images, a real DISM, or the real Microsoft Update Catalog**).
+Last updated: 2026-09-24. The list now tracks one script only, v2.4. Older versions moved to `archive\`, and steps 1, 3 and 5 are summarised as reference at the end.
 
-## How the order was chosen
+**Build under test: `MediaRefresh_v2.4.ps1`.** It contains everything from v2.1-v2.3 (steps 1 and 3) plus the catalog download layer (step 5). The older scripts in `archive\` are kept for history only; nothing below needs them.
 
-The order minimizes rework: data and structure that later features read come first, features that need real DISM feedback wait for it, and pieces that share code were merged so the shared part is written once.
+Where v2.4 stands:
 
-- **Profiles before features.** The catalog search rules (step 5), package order, end-of-support date and SCCM defaults are all per-OS settings. If they are built into code first, they get moved into profile files later. So profiles go first.
-- **Output handling before anything that writes or copies output.** Dated output and archiving are needed by the change log file names (step 3) and the SCCM copy step (step 7).
-- **One instrumentation pass.** The title-bar phase display, the change log and the validation gate all need the engine to report the same stage boundaries, ISO file names and the finished image's contents. That is written once (step 3).
-- **Real-image feedback early, in parallel.** Terry's first real runs (step 2) need no new code, so they start now on the untouched v2.1 while step 1 is built in v2.2. Results only cause fix-ups; they do not block the coding.
-- **Host DISM decision after the Win11 result** (step 4), **downloader before SCCM import** (5 before 7, because the import needs a finished, current image), **hard cancel and batch queue last** (8), because they change how every earlier step is started and stopped.
-
-### Old-to-new mapping
-
-| New step | Merges old tasks |
-|---|---|
-| 1 | 11 (profiles JSON), 12 (order manifest), 10 (protect previous output), 18 (retirement date), test-kit part of 19 |
-| 2 | 2 (missing ISOs), 3 (open questions), 1 (real-image runs), 4 (WinRE with languages) |
-| 3 | 20 (title bar phase), 5 (change log), 9 (validation gate) |
-| 4 | 13 (host DISM / ADK) |
-| 5 | 6 (MSCatalogLTS), 7 (checkpoint CUs), 8 (Setup DU / Safe OS DU) |
-| 6 | 17 (media refresh, .NET order) plus second real-image round |
-| 7 | 16 (SCCM import engine), 21 (SCCM import tab) |
-| 8 | 14 (hard cancel), 15 (batch queue and scheduled run) |
-| 9 | 19 (rest of housekeeping) |
+- **Mock test kit:** 7 suites, 237 checks, all passing (PowerShell 7.6 on Windows, 2026-09-24).
+- **Real Microsoft Update Catalog:** dry runs for LTSC 2019 only (2026-09-23). LCU and .NET CU were picked correctly. The Safe OS DU / Setup DU fixes made after that run have not been re-run yet.
+- **Real images and real DISM:** never run on v2.4. A v2.2 run of IoT LTSC 2021 finished with 0 verify issues on 2026-09-21, but v2.3 and v2.4 changed the servicing code (package handling, verification, .NET CU skipping), so that run does not count for v2.4.
 
 ## Index
 
+Step numbers are kept from earlier versions of this list because the script, the logs and older notes refer to them. Steps 1, 3 and 5 are built; they are described under [Built into v2.4](#built) at the end.
+
 | # | Step | Owner | Status |
 |---|------|-------|--------|
-| [1](#s1) | Foundation: JSON profiles, package order, end-of-support dates, safe dated output | Claude | **Done in v2.2 (mock-tested)** |
-| [2](#s2) | Real-image validation round 1: inputs, preflight, first servicing runs, WinRE with languages | Terry (parallel) | In progress (one v2.2 run completed; logs pending) |
-| [3](#s3) | Run reporting: title-bar phase, change log (HTML + CSV), validation gate | Claude | **Done in v2.3 (mock-tested)** |
-| [4](#s4) | Host DISM vs image build (ADK DISM decision) | Claude + Terry | After step 2 Win11 result |
-| [5](#s5) | Acquisition layer: MSCatalogLTS download, checkpoint CUs, Setup DU / Safe OS DU | Claude | **Built in v2.4 (mock-tested only; never run against the real catalog)** |
-| [6](#s6) | Upgrade-package media readiness and validation round 2 | Claude + Terry | After 5 |
-| [7](#s7) | SCCM import: new tab, local copy to content source, import, distribute | Claude | After 3 and 5 |
+| [2](#s2) | **Validate v2.4:** real catalog, real servicing runs, feature checks | Claude (catalog) + Terry (servicing) | **Now** |
+| [4](#s4) | Host DISM vs image build (ADK DISM decision) | Claude + Terry | Needs the build-host answer and the Win11 24H2 run from step 2 |
+| [6](#s6) | Upgrade-package media readiness and validation round 2 | Claude + Terry | After 2 |
+| [7](#s7) | SCCM import: new tab, local copy to content source, import, distribute | Claude | After 2 |
 | [8](#s8) | Hard cancel, batch queue, scheduled run | Claude | Last feature |
 | [9](#s9) | Housekeeping and final documentation | Claude | Ongoing |
-| [10](#s10) | Operator UX: INSTRUCTIONS.md + Instructions tab, saved settings, utility menu (Clear Settings / Cleanup Mountpoints / Image Inventory) | Claude (+ Terry for the inventory script) | Added 2026-09-22, not started |
-| [11](#s11) | App / provisioned-app removal (debloat) — runs first, before any other servicing | Claude | Added 2026-09-22, not started |
-| [12](#s12) | Bootable WinPE recovery/rescue ISO (ADK-based, 2023 UEFI CA signed) | Claude | Added 2026-09-22, not started |
-| [13](#s13) | Expand OS support: Windows 11 25H2, Windows 11 26H2, Windows Server 2025 | Claude + Terry | Added 2026-09-22, not started |
+| [10](#s10) | Operator UX: INSTRUCTIONS.md + Instructions tab, saved settings, utility menu | Claude (+ Terry for the inventory script) | Not started |
+| [11](#s11) | App / provisioned-app removal (debloat), first in the servicing order | Claude | Not started |
+| [12](#s12) | Bootable WinPE recovery/rescue ISO (ADK-based, 2023 UEFI CA signed) | Claude | Not started |
+| [13](#s13) | Expand OS support: Windows 11 25H2, Windows 11 26H2, Windows Server 2025 | Claude + Terry | Not started |
+
+Order of work: validate v2.4 first (2), settle the DISM question (4), then the new features. The SCCM import (7) waits for a validated image, and hard cancel / batch queue (8) comes last because it changes how every other step is started and stopped.
 
 ---
 
-<a id="s1"></a>
-## 1. Foundation: JSON profiles, package order, end-of-support dates, safe dated output
-
-**Owner:** Claude. **Status:** built and mock-tested in `MediaRefresh_v2.2.ps1` (v2.1 stays untouched for step 2). Needs a first look on the real build machine (see "Try it" below).
-
-**1a. OS profiles as JSON files** (old 11)
-
-- One JSON file per OS in a `Profiles` folder beside the script: display name, folder and alternate folder names, edition regex / preferred index, service-all-indexes flag, language pack file pattern, default languages, SSU required flag, package order (below), end-of-support date, notes. The five built-in profiles are written out as files on first run, so the single script still works on its own. A bad or incomplete file is reported and skipped, never crashes the run.
-- The loader ignores keys it does not know, so steps 5 and 7 can add their own keys (catalog search rules, SCCM defaults) to the same files without a new file format.
-- Adding an OS (Server 2025, Win11 25H2, LTSC 2024) then needs a JSON file, not a code change.
-
-**1b. Package order manifest** (old 12)
-
-- Per package class (SSU, LCU, .NET CU, Safe OS DU, Setup DU) an optional ordered list of file-name patterns. Matching files are applied in that order; anything else follows in name order. Replaces "filename order" for legacy SSU chains.
-
-**1c. End-of-support dates** (old 18)
-
-- Each profile carries an end-of-support date. The run logs a warning when it is past or within 180 days, and the GUI shows it next to the OS selection. Known dates: Windows 10 Enterprise LTSC 2021 (KMS) **2027-01-13**; IoT LTSC 2021 2032-01-14; LTSC 2019 2029-01-10. Win11 24H2 Enterprise and Server 2022 are left blank until checked against the Microsoft lifecycle pages.
-- The decision itself (when to stop refreshing the KMS image and what replaces it) stays with Terry.
-
-**1d. Safe dated output** (old 10)
-
-- Before a real run writes anything, the previous `NEWWIM` output (install.wim, boot.wim, media folder) is moved into `NEWWIM\Archive\<yyyyMMdd_HHmmss>` instead of being overwritten; the newest few archives are kept and older ones removed.
-- Free-space check in the preflight and before a real run (tens of GB per run), with a clear message instead of a DISM failure half way through.
-
-**1e. Keep the test kit** (part of old 19)
-
-- The mock-based test kit (unit, end-to-end, runner and parse checks) is saved into the project so it survives this session and can re-check every later change.
-
-**What was built (v2.2)**
-
-- `Profiles\*.json` beside the script, created on first run from the built-ins; "Reload profiles" button; the run re-reads the files each time, so an edit applies to the next run. Invalid file = skipped with a message naming the file and the reason; if the first file by name defines an OS twice, the later file is skipped.
-- `packageOrder` per class with wildcard patterns; the applied order is logged (`SSU order: a -> b`); a pattern that matches nothing logs a WARN.
-- `endOfSupport` per profile: WARN in the log at the start of a run when past or within 180 days, and a line under the OS selector in the GUI (red when near or past). With today's date the KMS profile is already inside the 180-day window (2027-01-13).
-- Previous `NEWWIM` output moved to `NEWWIM\Archive\<timestamp>` just before the first new output is written (install.wim, boot.wim or media); newest 3 kept (`keepArchives`; 0 keeps all). Preflight never archives.
-- Free-space check in preflight and real runs: about 3x the source WIM plus 6 GB scratch, plus one OS ISO for media and another for an ISO build, never below the profile's `minFreeGB` (30 GB client, 60 GB Server). `spaceCheck` = enforce, warn or off.
-- Test kit stored in the project under `claude/testkit/` (6 suites, 162 checks, all passing on PowerShell 7.4).
-
-**Try it (first real look):** copy `MediaRefresh_v2.2.ps1` next to v2.1, start it as Administrator, confirm that a `Profiles` folder with five JSON files appears beside the script and that the OS list, the support line and "Reload profiles" work; then run a Preflight-only on one OS and check the new `Profile:`, `Support ends`, `... order:` and `Free space on ...` log lines. Servicing itself is unchanged from v2.1, so step 2's real runs can continue on either file.
-
-**Open points for Terry**
-
-- Win11 24H2 and Server 2022 end-of-support dates are blank until checked against the Microsoft lifecycle pages (fill them in the JSON files).
-- The free-space estimate is a rule of thumb; if it is too strict or too loose on real runs, tune `minFreeGB` or set `spaceCheck` to `warn`.
-
-**Done when (met in mock tests):** v2.2 loads profiles from JSON (and falls back to built-ins), applies the order manifest, warns about end of support, archives previous output and checks free space; all existing checks plus new ones pass; the test kit is stored in the project.
-
 <a id="s2"></a>
-## 2. Real-image validation round 1: inputs, preflight, first servicing runs, WinRE with languages
+## 2. Validate v2.4: real catalog, real servicing runs, feature checks
 
-**Owner:** Terry (Claude analyses the logs). **Status:** can start now, in parallel with step 1. Use `MediaRefresh_v2.1.ps1` as it is; nothing in step 1 changes how DISM is driven.
-**Merges old 2, 3, 1, 4.**
+**Owner:** Claude for 2A, Terry for 2B (Claude reads the logs), both for 2C. **Done when:** 2A, 2B and 2C are all ticked off, and any fixes found along the way are made in v2.4 with a test added for each.
 
-**2a. Inputs still needed**
+### 2A. Real catalog (Claude, on Terry's PC)
+
+This no longer needs Terry to relay results. Checked 2026-09-24: this PC has Windows PowerShell 5.1 with **MSCatalogLTS 2.1.0.1** installed (not installed for PowerShell 7), and catalog.update.microsoft.com is reachable. Claude can run the searches directly.
+
+- [ ] **Action for Terry before the next GUI dry run:** profile JSON files are only generated when the `Profiles` folder is empty, so an existing `Profiles\*.json` keeps the old `catalogSearch` values. Delete the `Profiles` folder (or the files you have not hand-edited) and press "Reload profiles", or copy the new `catalogSearch` values in by hand.
+- [ ] **LTSC 2019 (1809), re-check.** SafeOS should pick `2026-08 Dynamic Update for Windows 10 Version 1809 for x64-based Systems (KB5120247)`. SetupDU should pick a *different* "Dynamic Update for Windows 10 Version 1809" entry. **The SetupDU rule is inferred, not confirmed:** it assumes the Setup DU has the same title shape and a Products value without "Safe OS".
+- [ ] **LTSC 2021 KMS and IoT (21H2).** The NetCU, SafeOS and SetupDU searches have never been tried. Expect the same shape as 1809: one combined .NET CU entry that downloads one file per .NET version (e.g. "3.5, 4.8 and 4.8.1"), and a Safe OS DU identified only by its Products field. Set `search`, `buildFilter` and `productFilter`/`productExclude` from the real results.
+- [ ] **Server 2022.** Same checks as 21H2. The LCU search and title filter also need a first real test.
+- [ ] **Win11 24H2.** The LCU search string (`Windows 11, version 24H2`) and the SafeOS/SetupDU searches are untested. Also check whether the current LCU needs a checkpoint chain (see step 5, "Checkpoint CUs").
+- [ ] **Module parameter check.** Compare `Get-Command Get-MSCatalogUpdate -Syntax` and `Get-Command Save-MSCatalogUpdate -Syntax` from the installed module with the parameters the script passes. The script only passes optional parameters the module declares, but this has only been checked against the upstream ryan-jan/MSCatalog source, not the LTS fork itself.
+- [ ] **Run the test kit under Windows PowerShell 5.1 as well as 7.** The empty-result `.Count` crash was a 5.1-only behaviour that the PowerShell 7 test run could not catch.
+- [ ] Update the built-in profiles in the script to match whatever the real searches show, so a fresh `Profiles` folder is correct.
+
+### 2B. Real servicing runs (Terry, on the build machine)
+
+**Inputs still needed**
 
 | OS folder | Needed | Why |
 |---|---|---|
@@ -108,155 +60,71 @@ The order minimizes rework: data and structure that later features read come fir
 | Win10_IOT_Enterprise_LTSC_2021 | FOD part 1 ISO, **or** confirmation that the LangPackAll ISO already carries `Microsoft-Windows-LanguageFeatures-*` cabs | Check with `Get-ChildItem X:\ -Recurse -Filter 'Microsoft-Windows-LanguageFeatures-*'` on the mounted ISO. |
 | Win11 24H2, Server 2022 | Fresh Microsoft ISOs each cycle | English only, no LP/FOD ISOs needed. |
 
-**2b. Questions to answer**
+**Questions to answer**
 
-- Was WinRE servicing switched off deliberately in the two logged v2 runs?
 - Build host: OS version and ADK version (drives step 4).
-- Exact image names in the IoT 2021 ISO (paste the `Detected indexes:` log line from a preflight).
-- Current Setup DU and Safe OS DU files for the legacy OSes, if WinRE and upgrade-package media should be refreshed (step 5).
-- Settled already: SCCM content sources are on `<SCCM-SOURCE-SERVER>` (this server); the LTSC 2019 SSU is KB5005112 (x64) and the LTSC 2021 IoT and KMS SSU is `ssu-19041.3562-x64.msu`.
+- Settled already: SCCM content sources are on `<SCCM-SOURCE-SERVER>` (this server); the LTSC 2019 SSU is KB5005112 (x64); the LTSC 2021 IoT and KMS SSU is `ssu-19041.3562-x64.msu`; the IoT 2021 edition selection works (v2.2 run, 2026-09-21).
 
-**2c. Runs** (full test plan in `MediaRefresh_Review_and_Roadmap.md`, section 0)
+**Before any run**
 
-- Before any run: `Unblock-File` the script, run from elevated Windows PowerShell 5.1, exclude the MediaRefresh folder from antivirus, have tens of GB free, rename any NEWWIM\install.wim you still need (the run overwrites it in v2.1), keep only the newest LCU in PATCHES\LCU.
-- Preflight only on every OS folder. Check the ISO role lines, patch counts, language pack check and the `Detected indexes` / `Selected client image index` lines (this confirms the IoT 2021 edition fix).
-- First servicing run: **LTSC 2021 KMS, de-de + ja-jp only**, WinRE on, NetFx3 on, Verify on (about 1.5 hours). Then all ten languages, then Server 2022 (English only, four indexes, WinRE once), then LTSC 2019, IoT 2021 and Win11 24H2.
-- **WinRE with languages is the highest-risk path** and has never run in any log. Run once with WinRE on and once off to isolate it. Record WinRE size before and after, and confirm the same winre.wim is reused for every Server index.
-- Confirm on a real console: clicking in the console no longer pauses the run (Quick Edit fix), and the window stays responsive during mount and patch.
-- Send `MediaRefresh_*.log` and `DISM_*.log` from LOGS after each run. The `VERIFY` lines are the evidence that the LCU and languages are really in the image.
-- **AV exclusion — verify it's actually in place (Terry, 2026-09-22).** The IoT 2021 LTSC real run (v2.2, 2026-09-21) completed successfully with 0 verify issues, but took ~3h53m total, with individual steps way out of proportion to the rest: LCU pass 1 ~46 min, LCU final ~38 min, one .NET CU ~29 min, component cleanup ~24 min, versus ~5-7 min per language pack. The DISM log for that run contains 30,000+ `Error CSI ... Matching binary ... missing for component ... dualModeDriver` entries (Hyper-V driver components: `wvmbusr`, `vmbusr`, `vmbuspiper`, `wstorvsp`, `storvsp`) — a known-benign DISM/CBS quirk that doesn't fail the run, but retrying/logging it that many times costs real time, and lines up with exactly the steps that ran long. This is also consistent with real-time antivirus scanning fighting DISM for every file it touches. The pre-run checklist above already says to exclude the MediaRefresh folder from AV — **double-check that exclusion is actually configured** (folder path, and whether it needs the OS drive/MOUNT subfolders specifically, not just the top-level MediaRefresh folder) and re-run the same OS once excluded to see whether the slow steps and the dual-mode-driver error volume both drop. Not urgent (the image itself was fine), but worth doing before Server 2022's 4-index runs multiply the cost.
+- `Unblock-File` the script and run it from elevated Windows PowerShell 5.1.
+- **Antivirus exclusion: check it is really in place.** The v2.2 IoT 2021 run took about 3h53m. A few steps took far longer than the rest (LCU pass 1 ~46 min, LCU final ~38 min, one .NET CU ~29 min, cleanup ~24 min, against ~5-7 min per language pack). Its DISM log has 30,000+ benign `Error CSI ... Matching binary ... missing for component ... dualModeDriver` entries (Hyper-V driver components). Both point to real-time scanning fighting DISM. Confirm the exclusion covers the MediaRefresh folder including each OS's `MOUNT` subfolder, then compare the timings on the next run.
+- Tens of GB free. v2.4 checks this itself and archives the previous `NEWWIM` output, so nothing needs renaming by hand.
+- Fill `PATCHES` with "Download patches..." (after 2A) or by hand; the SSU always goes into `PATCHES\SSU` by hand.
 
-**Done when:** each OS produces an install.wim whose VERIFY lines show the expected RollupFix, languages and fonts, with no crash or hang, and any fix-ups from the logs are folded into v2.2.
+**Runs, in order** (full test plan in `MediaRefresh_Review_and_Roadmap.md`, section 0)
 
-<a id="s3"></a>
-## 3. Run reporting: title-bar phase, change log (HTML + CSV), validation gate
+1. [ ] Preflight only, on every OS folder. Check the ISO role lines, patch counts, the language pack check and the `Detected indexes` / `Selected client image index` lines.
+2. [ ] First v2.4 servicing run: **LTSC 2021 KMS, de-de + ja-jp only**, WinRE on, NetFx3 on, Verify on (about 1.5 hours).
+3. [ ] LTSC 2021 KMS with all ten languages.
+4. [ ] Server 2022 (English only, four indexes). Confirm WinRE is serviced once and the same winre.wim is reused for every index.
+5. [ ] LTSC 2019. The log should show the .NET CU part KB5126043 added and KB5126048 (the 4.8 part) skipped with a WARN as not applicable. That skip is inferred from the 0x800f081e behaviour and has not yet been seen in a real DISM log.
+6. [ ] IoT LTSC 2021 (repeat on v2.4).
+7. [ ] Win11 24H2. This also answers step 4 if the build host's DISM is older than build 26100.
 
-**Owner:** Claude. **Status:** built and mock-tested in `MediaRefresh_v2.3.ps1` (v2.2 stays untouched for step 2's real runs). **Depends on:** 1 (dated output and file naming). Wording and checks may still need tuning once Terry's real-run logs come back (step 2).
-**Merges old 20, 5, 9.**
+- **WinRE with languages is the highest-risk path** and has never run in any log. Run it once with WinRE on and once off to isolate it, and record the WinRE size before and after.
+- On a real console, confirm that clicking in the console no longer pauses the run (Quick Edit fix) and that the window stays responsive during mount and patch.
+- After each run, send `MediaRefresh_*.log`, `DISM_*.log` and the `ChangeLog_*` files from `LOGS`. The `VERIFY` lines are the evidence that the LCU and languages are really in the image.
 
-All three need the engine to report the same things, so the engine is instrumented once and the three consumers read it:
+**Done when:** each OS produces an install.wim whose VERIFY lines show the expected RollupFix, languages and fonts, the validation gate says PASSED, and there is no crash or hang.
 
-- **Stage boundaries** - a small `Set-Phase` call at each stage (also the source of the title-bar text).
-- **Change events** - every package, language pack, capability and font the tool adds, with a timestamp taken when the step succeeds.
-- **ISO sources** - the file name (not only the drive letter) of the OS ISO and every additional ISO.
-- **Finished-image data** - read once from the existing read-only verification mount (`Test-OutputWim`): build, packages, features, capabilities, appx, provisioned appx.
+### 2C. v2.4 feature checks (tick off during the 2B runs)
 
-**3a. Title bar: OS name and current phase** (old 20)
+These are the "Try it" checks from steps 1, 3 and 5. They were only ever confirmed in mock tests.
 
-- The header has the title "WimForge" and its subtitle on the left with unused space to the right. Use that space, right-aligned, for two lines: the **OS being worked on** (the selected OS while idle, the running OS during a run), and directly below it the **current phase**.
-- Phases: Idle; Preflight; Mounting ISOs; Clearing stale mounts; Exporting image; **Removing apps** (step 11, once built — runs first, before WinRE/SSU/LCU); Servicing WinRE; Adding SSU; Adding LCU (pass 1 / final); Adding language packs; Adding FODs and fonts; Component cleanup; Enabling .NET 3.5 / adding .NET CU; Servicing boot.wim; Exporting install.wim; Verifying image; Building media / ISO; Writing change log; later Copying to content source and Importing to SCCM (step 7); Done; Failed; Cancelled. Server 2022 shows the index ("Servicing index 2 of 4").
-- The engine already streams log and progress to the window through a queue: add a third message type for phase and OS name, and let the GUI timer update the two header text blocks. Turn the header `StackPanel` into a two-column grid so the right block stays right-aligned. In step 8 the phase line can add "OS 2 of 3".
+- [ ] A `Profiles` folder with five JSON files appears beside the script on first start; the OS list, the support-date line under it and "Reload profiles" work. An edited file applies to the next run, and a broken file is reported and skipped.
+- [ ] The preflight log shows the `Profile:`, `Support ends`, `... order:` and `Free space on ...` lines, and packages are applied in the logged order.
+- [ ] The previous `NEWWIM` output is moved to `NEWWIM\Archive\<timestamp>` just before new output is written; only the newest 3 archives are kept. Preflight never archives.
+- [ ] The free-space estimate is neither too strict nor too loose (otherwise tune `minFreeGB`, or set `spaceCheck` to `warn`).
+- [ ] The header shows the OS and a phase that matches the log throughout a run ("Servicing install.wim (index N of M)" on Server), then Done, Failed or Cancelled.
+- [ ] `ChangeLog_<OS>_<build>_<timestamp>.html` and `.csv` land in `LOGS` and beside the output in `NEWWIM`. Section A matches the `VERIFY` lines, the OS ISO is the first source line, and the header's gate result matches the log.
+- [ ] Section B (derived dates, hotfix list, appx inventory) is worth reading on real data, or needs trimming.
+- [ ] "Download patches..." shows a dry-run list first, downloads only after confirmation, prunes superseded files in `PATCHES\<class>`, never touches `PATCHES\SSU`, and the downloads show up in Section A of the next servicing run's change log.
 
-**3b. Per-image change log, separate from the run log** (old 5). **Input from Terry:** the inventory script he offered; use it as the starting point for the data collection.
+### 2D. Profile data (Terry)
 
-Produce **both** an HTML file (for reading) and a CSV (for filtering/import) from one data model.
-
-- Files: `LOGS\ChangeLog_<OS>_<build>_<yyyyMMdd_HHmmss>.html` and `.csv`, also copied beside the output WIM in `NEWWIM\` so it travels with the image and can be referenced by the SCCM object. Server 2022 (several indexes): one file per output WIM with a section (or `Index` column) per index.
-- **Header block:** (1) title line `<OS name> - Build <major.build.revision>` from the finished image; (2) source line 1 = file name of the **OS ISO**; (3) source lines 2..n = every additional ISO used (Language Pack, FOD, others); (4) build **before** and build **after** patching; (5) run date/time, tool version, edition/index, languages requested.
-- **Section A - what this tool changed** (date/time on every row): KB patches installed (SSU, LCU incl. checkpoints, .NET CU, Safe OS/WinRE update, Setup DU) with KB number, file name and target (install.wim / WinRE / WinPE); language packs; Features on Demand / capabilities (including `Language.*`); fonts (`Language.Fonts.*`); other actions (NetFx3, WinRE serviced, cleanup, export).
-- **Section B - final state of the image** (read from the read-only mount of the finished WIM): enabled optional features, packages, capabilities, appx packages, provisioned appx packages, hotfixes.
-- **Columns:** `Date | Section | Item | Version / KB | State | Source | Index`. Every item has a date next to it.
-- **Decisions while building** (offline images differ from a running system): dates for inventory items use the DISM install time when it exists (packages), otherwise the date the image was serviced, with a `DateSource` note; appx comes from provisioned packages plus `Program Files\WindowsApps` (no per-user appx offline); hotfixes are derived from `Package_for_KBxxxxxxx` and RollupFix package names (`Get-HotFix` is live-only); build before = `Get-WindowsImage -Index` Version, build after = offline registry (`CurrentBuild` + `UBR`, `DisplayVersion`), or a read-only mount of the source index if more accuracy is wanted; confirm these with Terry.
-- The report is written even when verification finds issues, and says so at the top.
-
-**3c. Validation gate** (old 9)
-
-- From the same finished-image data: compare build/revision with the applied LCU, confirm the RollupFix package, index count and edition names. On failure mark the output as failed (for example `install.wim.FAILED`, and do not offer it to the SCCM step) instead of leaving a stale WIM that looks fine. The result goes into the change log header.
-
-**Done when:** during a run the header always shows the OS and a phase that matches the log and returns to Idle/Done/Failed afterwards; a serviced image produces both change-log files whose Section A counts match the `VERIFY` lines; Section B lists the RollupFix and every requested language and font; the title shows the OS and final build; the OS ISO is the first source line; and a stale image is flagged instead of passing quietly.
-
-**What was built (v2.3)**
-
-- **Title bar.** The header is now a two-column grid: "WimForge" stays left, and the OS name + current phase are right-aligned next to it. A `Set-Phase` call at every stage boundary in `Invoke-MediaRefresh` (mounting, clearing stale mounts, exporting, each servicing index — "Servicing install.wim (index N of M)" on Server — verifying, building media/ISO, writing the change log, done) drives it. In the foreground path it writes straight to the two `TextBlock`s; in the background-runspace path it enqueues an `H`-tagged queue message that `Update-RunUi` now reads and applies. While idle, the header shows whatever OS is selected in the combo box (`Update-HeaderIdle`, wired to the OS selector and to start-up). `Complete-BackgroundRun` sets a terminal phase — **Done**, **Cancelled**, or **Failed** (distinguished by whether Cancel was requested) — and a run whose gate FAILED gets its own warning-styled completion dialog instead of the plain success message.
-- **Change events.** A single `Add-ChangeEvent` call, added at each point a package, language pack, capability/font, WinRE service, NetFx3 enable or component cleanup succeeds, timestamps and categorizes everything the run actually changed (SSU, LCU, LanguagePack, Font, Capability, SafeOS, NetCU, WinRE, NetFx3, Cleanup, Other). ISO source file names (OS, Language Pack, FOD) are captured the same way, from the role map rather than by re-deriving them later.
-- **Change log (HTML + CSV).** `Write-ChangeLog` builds both from one row list: `LOGS\ChangeLog_<OS>_<build>_<timestamp>.html`/`.csv`, copied beside the output into `NEWWIM\` after a successful `Install` run. Header block (OS + build, every source ISO by file name, build before/after, run date, tool version, edition/index, languages, and the gate result) comes first, then **Section A** (every change event, with KB parsed from the file name where present), then **Section B** — the finished image's packages, capabilities (including a Font/Language-capability split), enabled optional features, provisioned appx, staged appx folders, and hotfixes, all read from the same read-only verify mount `Test-OutputWim` already opens, so nothing is mounted twice. Columns are exactly `Date | Section | Item | Version / KB | State | Source | Index`. When Verify is off, the log still gets written (Section A only) and says plainly that Section B and the gate are unavailable for that run.
-- **Validation gate.** Reuses the existing verify-issue count (RollupFix, language pack and font checks) rather than adding new comparisons: `Gate` is `PASSED` when `Test-OutputWim` finds zero issues, `FAILED` when it finds any, and `Skipped` when Verify wasn't run or the run was Preflight-only. **Decision:** the gate flags rather than blocks — a failing image is still written and still usable, but the run log says `VALIDATION GATE: FAILED` at ERROR level, the change log header is marked FAILED, and the GUI's completion dialog calls it out as a warning. Nothing is renamed to `.FAILED` or hidden from a later SCCM import step; step 7 can decide whether to read `Gate` and refuse a failed image outright once it exists.
-- **Small engine fix found along the way:** `Add-Packages` now derives the logged/recorded package name from `FullName` (`Split-Path -Leaf`) instead of assuming the package object has a `.Name` property — real file objects from `Get-ChildItem` have one, but the language-pack call site builds a bare `FullName`-only object, and would have thrown under `Set-StrictMode` the first time a language pack was applied on a real run.
-- **Test kit:** `mocks.ps1` gained `Get-WindowsOptionalFeature`/`Get-AppxProvisionedPackage` mocks (new calls inside the rewritten `Test-OutputWim`); `e2e.ps1` gained checks for the gate (PASSED/FAILED/Skipped), change-event categories and counts, Section B population, the change-log CSV's columns and the HTML header's OS/gate text, and the archive-count message was updated to account for the two new change-log files that now land in `NEWWIM` alongside `install.wim`. All 6 suites pass: 172 checks (parse, xaml, harness 39, e2e 48, runner 18, profiles 62).
-
-**Try it:** copy `MediaRefresh_v2.3.ps1` next to v2.2, start it, and watch the header while a Preflight or real run goes through its phases. After a real run with Install + Verify both on, check `NEWWIM` for the two `ChangeLog_*` files alongside `install.wim`, open the HTML one, and confirm Section A matches what the `VERIFY` log lines report and the header shows PASSED or FAILED to match. Servicing itself is unchanged from v2.2/v2.1, so step 2's real runs are unaffected either way.
-
-**Open point for Terry:** once real-run change logs exist, check whether Section B's derived dates, hotfix list and appx inventory actually say something useful, or need trimming — the mock tests can only confirm the mechanism runs, not that the real data is worth reading.
+- [ ] Fill in the Win11 24H2 and Server 2022 end-of-support dates from the Microsoft lifecycle pages (the `endOfSupport` key in the JSON files; the built-in profiles in the script can be updated at the same time).
 
 <a id="s4"></a>
 ## 4. Host DISM vs image build (ADK DISM decision)
 
-**Owner:** Claude + Terry. **Depends on:** 2 (Win11 24H2 result and the build host answer). Old 13.
+**Owner:** Claude + Terry. **Depends on:** 2 (the build-host answer and the Win11 24H2 run).
 
-v2.1 only logs a warning when the host DISM is older than the image. Servicing Win11 24H2 (build 26100) from a Server 2022 host (DISM 10.0.20348) is a known source of odd failures. Options: detect and use the ADK's newer DISM for both the cmdlets (module path) and `dism.exe`, or require a newer build host. It is a small change once decided, but it touches every DISM call, so it is done once, before the downloader and SCCM steps pile on more code.
-
-<a id="s5"></a>
-## 5. Acquisition layer: MSCatalogLTS download, checkpoint CUs, Setup DU / Safe OS DU
-
-**Owner:** Claude. **Depends on:** 1 (search rules live in the profile). **Reference:** WimWizard (TacII); MSCatalogLTS 2.1.0.2, confirmed against its real source at [Marco-online/MSCatalogLTS](https://github.com/Marco-online/MSCatalogLTS) (Terry's named true source for this module), which descends from [ryan-jan/MSCatalog](https://github.com/ryan-jan/MSCatalog) - the LTS fork's tree page is robots-blocked for fetching, so the upstream ryan-jan source (read directly via raw.githubusercontent.com) is what grounds the parameter surface below; the LTS fork's own README additionally documents an `-Architecture` parameter and date-range/size-filter options layered on top of that base. **Merges old 6, 7, 8** (the last two are just more package classes for the same downloader).
-
-Fill the existing `PATCHES\*` folders automatically; the servicing engine keeps reading only those folders.
-
-- Per-OS **search rules** in each profile (catalog titles differ by product): search string, architecture, exclude Preview, package class, build filter. Titles are editable data. Examples: LTSC 2019 = "Windows 10 Version 1809", LTSC 2021 = "21H2", Server 2022 = "Cumulative Update for Microsoft server operating system version 21H2".
-- Derive the version string from the base WIM build number.
-- ~~Download LCUs through the catalog DownloadDialog call so the original hashed file name is kept (`Save-MSCatalogUpdate` strips it), as WimWizard does.~~ **Corrected:** the real `Save-MSCatalogUpdate` (confirmed from source) already names the saved file from the download URL's own last path segment - it never strips the catalog's real file name, and there is no separate "DownloadDialog" call needed. This was based on an unverified assumption in an earlier draft of this doc; no dialog-preservation trick is required.
-- Package classes: LCU (`.msu`), .NET CU, **Safe OS DU** (`.cab`; without it WinRE stays at its shipped level), **Setup DU** (without it upgrade packages run RTM Setup files). Never mistake the Safe OS `.cab` for an LCU.
-- **Checkpoint cumulative updates (Win11 24H2+, Server 2025):** when adding FODs or language packs, all prior checkpoint MSUs plus the target LCU must be in one folder and installed together. The downloader must know which checkpoints the target needs and prune the rest. Not needed for the Win10 LTSC profiles.
-- Cache by KB, delete superseded files, keep only the newest LCU (plus required checkpoint chain) in `PATCHES\LCU`.
-- **Manual SSUs stay manual.** The legacy SSUs (LTSC 2019 KB5005112; LTSC 2021 `ssu-19041.3562-x64.msu`) are dropped in `PATCHES\SSU` by hand and never touched by the downloader.
-- **Dry run in the GUI:** show the KB list that would be downloaded and applied, and require confirmation.
-- Install/verify the module from the Gallery on first use (PowerShell 5.1+); fail clearly if the machine is offline. Runs on the background runspace.
-- Check WimWizard's licence before copying any code. (MSCatalogLTS/MSCatalog itself was read directly from source for this step, not copied from WimWizard.)
-
-**Done when:** one click fills PATCHES for a chosen OS with the right latest files (including SafeOS/SetupDU where the profile asks for them and the checkpoint chain on Win11), shows what it chose, and never deletes the manual SSUs.
-
-**What was built (v2.4)**
-
-- **Profile schema.** Each built-in profile gained a `catalogSearch` key (parsed and validated in `ConvertTo-OsProfile`, the same way `packageOrder` is): one entry per package class (`LCU`, `NetCU`, `SafeOS`, `SetupDU`) with `search` (a single string, **or an array of strings** - see the multi-term note below), `architecture` (default `x64`), `excludePreview` (default true), `buildFilter` (optional regex against the catalog title) and `checkpointKBs` (an explicit KB list, see the open point below). `catalogSearch.SSU` is refused at validation time with a plain-language error - the profile loader itself enforces "SSU stays manual," not just the engine. LCU search strings for the four Win10/Server profiles are the ones already agreed in this doc (`Windows 10 Version 1809`, `21H2`, the Server 2022 CU search); the NetCU/SafeOS/SetupDU strings and the Win11 24H2 LCU string are best-effort constructions from standard Microsoft Update Catalog title conventions and are flagged in each profile's `notes` field as needing a spot-check against catalog.update.microsoft.com before relying on them. Win11 24H2's profile has no `NetCU` rule (that class isn't serviced separately there).
-- **"Download patches..." button** next to Reload profiles. Always starts with a dry run: searches the catalog for every ticked class (reusing the existing SSU/LCU/SafeOS/NetCU/SetupDU checkboxes from "Updates and features" - SSU is simply never included in the acquisition loop), then a confirmation dialog lists exactly what it found (title + KB per class) before anything is downloaded or removed. Runs on the same background runspace as a servicing run (mutually exclusive - both buttons disable each other while either is active); Cancel works the same way.
-- **Engine functions** (`Ensure-CatalogModule`, `Get-BaseWimBuild`, `Resolve-CatalogSearch`, `Test-CatalogCandidate`, `Get-CatalogDate`, `Invoke-CatalogUpdateSearch`, `Search-CatalogCandidates`, `Save-CatalogCandidate`, `Update-PatchCache`, `Invoke-PatchAcquisition`): installs MSCatalogLTS from the PowerShell Gallery (CurrentUser scope) on first use with a clear error if that fails; reads the base image's build number by briefly mounting the OS ISO (for `{build}`/`{version}` substitution in search strings); searches, filters (architecture/preview/build) and sorts newest-first; downloads via `Save-MSCatalogUpdate` and prunes the destination folder to the newest file plus anything in the checkpoint-KB list, logging every keep/remove. **Corrected against the real module source:** `Invoke-CatalogUpdateSearch` calls `Get-MSCatalogUpdate` (real signature: `-Search` mandatory, `-SortBy`, `-Descending`, `-Strict`, `-IncludeFileNames`, `-ExcludePreview`, `-AllPages`, plus `-Architecture` per the LTS fork's README) and only passes `-ExcludePreview`/`-Architecture` when `(Get-Command Get-MSCatalogUpdate).Parameters.ContainsKey(...)` confirms the installed module version actually supports them, so it degrades gracefully rather than assuming a parameter surface. `Save-CatalogCandidate` was corrected the same way: it no longer passes an unconditional `-Confirm:$false` (the real `Save-MSCatalogUpdate` does not declare a `-Confirm` parameter in the confirmed source - that would have thrown "parameter cannot be found" on a real run); it now passes `-AcceptMultiFileUpdates` when the installed module supports it, to avoid an unattended background run hanging on a multi-file update prompt. Every successful download is recorded with `Add-ChangeEvent` (categories `LCU`/`NetCU`/`SafeOS`/`SetupDU`), so it shows up in Section A of the per-run change log (step 3) the next time that OS is serviced. `Invoke-MediaRefresh` branches to this instead of the servicing flow when `Options.Mode -eq 'Download'`; the ordinary servicing path is untouched.
-- **Multi-term search per class (fix, from Terry's first real-catalog test).** Testing LTSC 2019 against the real catalog, Terry found the NetCU search returned nothing - Windows 10 1809 needs .NET CU applied as **two separate, parallel downloads** (Microsoft ships one CU for ".NET Framework 3.5 and 4.7.2" and a second for ".NET Framework 3.5 and 4.8", since a 1809 image can have either version already present), not one "best" match. `catalogSearch.<class>.search` now accepts either a single string (unchanged, still works exactly as before for every other class) or an array of strings; `ConvertTo-OsProfile` canonicalizes this into `.search` (first term, kept for anything reading a single value) and `.searches` (the full list). `Invoke-PatchAcquisition` searches and downloads every term for a class independently, and `Update-PatchCache` gained a `-KeepFiles` parameter (alongside the existing single-file `-NewestFile`) so a multi-term class's whole set of this run's downloads is kept together - not pruned down to just one. The LTSC 2019 (1809) profile's `NetCU` rule now uses the two exact search strings Terry confirmed against the real catalog (`Cumulative Update for .NET Framework 3.5 and 4.8 for Windows 10 Version 1809` and `...4.7.2 for Windows 10 Version 1809`), replacing the earlier single best-effort guess that returned nothing. The other profiles' `NetCU` rules are unchanged (still single-term) - it's not yet confirmed whether 21H2 or Server 2022 need the same split (see the open point below).
-- **Test kit:** `testkit/acquisition.ps1` (39 checks, up from 31) - profile validation (parses `catalogSearch`, rejects an unknown class, rejects `SSU`, rejects a class missing `search`, **and now parses a `search` array into `.search`/`.searches`**), `Resolve-CatalogSearch`/`Test-CatalogCandidate`/`Get-CatalogDate` unit checks, a dedicated check that `Invoke-CatalogUpdateSearch` runs cleanly against a mock lacking the `-Architecture`/`-ExcludePreview` parameters (proving the defensive parameter-detection actually degrades gracefully rather than just being present in the code), `Update-PatchCache` pruning (**both the single-file `-NewestFile` form and the new multi-file `-KeepFiles` form**), a mocked `Invoke-PatchAcquisition` dry-run-then-real-run pass confirming the dry run touches nothing, the real run downloads and prunes correctly, PATCHES\SSU is untouched in both, and a class with no profile rule is reported in `SkippedClasses` rather than silently ignored, and **a new multi-term integration pass (section A6) confirming a two-search-term class downloads and keeps both matches side by side while still pruning a genuinely stale pre-existing file**. All 7 suites pass: 211 checks total (parse, xaml, harness 39, e2e 48, runner 18, profiles 62, acquisition 39). **2026-09-23:** section A7 added (20 checks, from Terry's real catalog output): architecture from titles/file names, the built-in LCU/NetCU title filters, a multi-file entry kept whole with the x86 entry listed first never picked, a wrong-architecture file removed, and `Add-Packages -SkipNotApplicable`. Now 231 checks total (acquisition 59).
-
-**Fixes after the second real-catalog test (Terry, 2026-09-23; fixed in v2.4, test kit 231 checks)**
-
-Terry's own working download script (LTSC 2019) found `2026-09 Cumulative Update for .NET Framework 3.5, 4.7.2 and 4.8 for Windows 10 Version 1809 (KB5126144)` but appeared to download a different KB. A diagnostic run on his machine (`Get-MSCatalogUpdate ... | Format-List *`, then `Save-MSCatalogUpdate -DownloadAll`) showed why, and exposed four problems that v2.4 shared:
-
-- **The combined .NET CU is a multi-file entry.** KB5126144 downloads two files, each named after its own component KB: `windows10.0-kb5126043-<arch>.msu` (3.5 + 4.7.2) and `windows10.0-kb5126048-<arch>-ndp48.msu` (3.5 + 4.8). So "found KB5126144, downloaded KB5126043" was correct behaviour, not a wrong download. Terry's script's rename/cache check keyed on the title KB (KB5126144), which no file name contains, so it never renamed and re-downloaded every run. v2.4 had the matching bug: `Save-CatalogCandidate` returned only the newest new file and `Update-PatchCache` then pruned the other one. **Fixed:** every file an entry produces is returned and kept; each is logged and recorded in the change log under its own KB with "part of catalog entry KB5126144"; `-DownloadAll` is passed when the installed module declares it (confirmed on Terry's machine).
-- **The entry picked was the x86 one.** Real results have no `Architecture` property (properties: Title, Products, Classification, LastUpdated, Version, Size, SizeInBytes, Guid, FileNames), the catalog search matches words loosely ("for x64" in the search still returns the x86 entry), and the x86 .NET entry names no architecture in its title at all. v2.4's architecture filter only read the missing property, so it would have let x86 through too. **Fixed:** when there is no Architecture property the title must name the profile's architecture (a title naming none is rejected); as a backstop, a downloaded file whose name names another architecture is deleted with a WARN. Set `architecture` to `''` in a profile rule to switch the check off for a product whose titles never name one.
-- **The 1809 .NET CU search was wrong.** The two separate "3.5 and 4.8" / "3.5 and 4.7.2" terms from 2026-09-22 are replaced by the one combined entry Terry identified: search `Cumulative Update for .NET Framework 3.5, 4.7.2 and 4.8 for Windows 10 Version 1809 for x64`, `buildFilter` `^\d{4}-\d{2} Cumulative Update for \.NET Framework 3\.5, 4\.7\.2 and 4\.8 for Windows 10 Version 1809`. (Multi-term search support stays in the engine for any class that genuinely needs it.)
-- **LCU searches could pick a .NET CU or Dynamic Update.** `Windows 10 Version 1809` / `21H2` also match the .NET CU and Dynamic Cumulative Update released the same Patch Tuesday (Terry's own script's LCU search did pick the .NET CU). **Fixed:** every built-in LCU rule now has a title filter anchored at the start, e.g. `^\d{4}-\d{2} Cumulative Update for Windows 10 Version 1809` (21H2: `...Windows 10 Version 21H2`, which also stops Windows 11 21H2 matching; Server 2022: `...Microsoft server operating system,? version 21H2`; Win11 24H2: `...Windows 11,? version 24H2`).
-- **Servicing: the 4.8 part does not apply to a stock 1809 image.** LTSC 2019 ships with .NET 4.7.2 (plus 3.5 once NetFx3 is enabled), so KB5126048 (`ndp48`) fails with 0x800f081e (not applicable) unless 4.8 was installed into the image, and v2.4 would have failed the whole run on it. **Fixed:** the .NET CU step (only) skips a not-applicable package with a WARN and a change-log line; every other class still fails on it. The 0x800f081e behaviour is inferred, not yet seen in a real DISM log - confirm on the next LTSC 2019 servicing run (the log should show KB5126043 added and KB5126048 skipped).
-
-**First real dry run of "Download patches..." (Terry, LTSC 2019, 2026-09-23 06:35, log `MediaRefresh_20260923_063524.log`)**
-
-- **LCU: correct.** Selected `2026-09 Cumulative Update for Windows 10 Version 1809 for x64-based Systems (KB5129238)`.
-- **.NET CU: correct.** Selected the x64 combined entry `...3.5, 4.7.2 and 4.8 for Windows 10 Version 1809 for x64 (KB5126144)` (the architecture fix works on real data).
-- **Safe OS DU: no result.** `Safe OS Dynamic Update for Windows 10 Version 1809` returned 0 raw results, so the search string is wrong (or 1809 no longer gets Safe OS DUs under that name) - **needs Terry to find the real catalog title**, see the open points.
-- **Crash - fixed.** The empty Safe OS result then stopped the whole run with `The property 'Count' cannot be found on this object`: `Invoke-PatchAcquisition` read `.Count` on the search result without wrapping it in `@()`, and under `Set-StrictMode -Version Latest` an empty result arrives as `$null` (and on Windows PowerShell 5.1 a single result arrives as a bare object, which PowerShell 7 - where the test kit runs - tolerates, so the kit could not catch that half). Now wrapped; a class with no match is listed in the dry-run summary as skipped and the remaining classes still run. Test added (acquisition 61, total 233); it fails against the previous script with the exact error from the log.
-- **Setup DU: not reached** because of the crash - re-run the dry run to see it.
-- Base build read as `10.0.17763.107` (the ISO's RTM build, as expected). The FOD ISO was mounted first while looking for the OS ISO - harmless, just a few seconds.
-
-**Action for Terry:** profile JSON files are only generated when the `Profiles` folder is empty, so an existing `Profiles\Win10_Enterprise_LTSC_2019.json` still has the old NetCU terms and no LCU filter. Delete the `Profiles` folder (or just the files you haven't hand-edited) and press "Reload profiles" / restart to regenerate them, or copy the new `catalogSearch` values in by hand.
-
-**Open points for Terry**
-
-- **LTSC 2019 Safe OS DU - title found (Terry, 2026-09-23), built in; Setup DU still to confirm.** The real Safe OS DU is `2026-08 Dynamic Update for Windows 10 Version 1809 for x64-based Systems (KB5120247)`, classification Critical Updates, products "Windows 10 and later Dynamic Update, Windows Safe OS Dynamic Update". Its title does not say "Safe OS" - only the Products field does - so `catalogSearch` rules gained two optional keys, `productFilter` and `productExclude` (regular expressions against Products; invalid ones are refused when the profile loads). The 1809 rules are now: SafeOS = search `Dynamic Update for Windows 10 Version 1809 for x64-based Systems`, `buildFilter` `^\d{4}-\d{2} Dynamic Update for Windows 10 Version 1809`, `productFilter` `Safe OS`; SetupDU = the same search and `buildFilter`, `productFilter` `Dynamic Update`, `productExclude` `Safe OS`. **The SetupDU rule is inferred, not confirmed**: it assumes the 1809 Setup DU has the same title shape and a Products value without "Safe OS". Check it on the next dry run (it should pick a "Dynamic Update for Windows 10 Version 1809" entry other than KB5120247), and send its title and products if it picks nothing or the wrong one. (The 21H2 and Server 2022 SafeOS/SetupDU rules still use the unverified "Safe OS Dynamic Update ..." / "Setup Dynamic Update ..." searches and will likely need the same treatment.)
-- **Catalog search strings need a real spot-check - in progress, LTSC 2019 done.** Terry's first real-catalog test (LTSC 2019 / 1809) confirmed the LCU search string works, and found the NetCU search string returned nothing - both are now fixed (LCU was already correct; NetCU is now the combined "3.5, 4.7.2 and 4.8" entry Terry found on 2026-09-23, see the fixes above). NetCU/SafeOS/SetupDU strings for the other profiles and the Win11 24H2 LCU string are still best-effort and untested against the real catalog. Continue testing OS by OS (LTSC 2021 next, per the earlier suggestion) and edit the `catalogSearch` blocks in `Profiles\*.json` for anything that returns zero results or the wrong item.
-- **What is the right .NET CU entry for 21H2 and Server 2022?** Not yet checked. Expect the same pattern as 1809: one combined catalog entry (e.g. "3.5, 4.8 and 4.8.1") that downloads one file per .NET version, with the engine keeping all of them and skipping the parts that don't apply at servicing time. When testing, run the same diagnostic as for 1809 (`Get-MSCatalogUpdate -Search '<term>' | Format-List *`, then `Save-MSCatalogUpdate -DownloadAll` into a temp folder) and send the title and file names, so the profile's search and `buildFilter` can be set from real data.
-- **Checkpoint-CU chain discovery is not automatic.** `checkpointKBs` is an explicit list you maintain per profile (currently empty everywhere) rather than something the engine derives from the catalog - I could not confirm the exact MSCatalogLTS mechanism for walking a checkpoint history without live catalog access. When a profile's `checkpointKBs` is empty, `Update-PatchCache` only keeps the newest file, which is not sufficient once Win11 24H2 (or Server 2025) actually needs a multi-MSU checkpoint chain applied together - fill in the KB list for the profile once that becomes relevant, or flag it back to me to build proper chain discovery.
-- **"DownloadDialog" filename preservation - resolved, was a false assumption.** Confirmed from the real `Save-MSCatalogUpdate` source: it already names the saved file from the download URL's own last path segment, so nothing strips the catalog's real file name and no separate dialog-call trick exists to replicate. The earlier open point here was based on an unverified guess; no further action needed.
-- **MSCatalogLTS parameter surface - now source-verified, not guessed.** Terry pointed to [Marco-online/MSCatalogLTS](https://github.com/Marco-online/MSCatalogLTS) as the true source for this module. Its own tree page is robots-blocked for fetching, but it descends from [ryan-jan/MSCatalog](https://github.com/ryan-jan/MSCatalog), whose actual `Get-MSCatalogUpdate.ps1` and `Save-MSCatalogUpdate.ps1` were read directly (via raw.githubusercontent.com) and used to correct the engine (see the Engine functions note above: real parameter names, no `-Confirm`, conditional `-AcceptMultiFileUpdates`/`-Architecture`/`-ExcludePreview` via `Get-Command` introspection so a differing installed module version doesn't throw). **Still not fully verified:** the LTS fork itself (Marco-online) may extend the base module further than its README describes; if a real run on the Gallery-installed LTS module errors on an unexpected parameter, the defensive `ContainsKey` checks should absorb it, but it's worth diffing the actually-installed module's `Get-Command -Syntax` output against this once you're at a machine with the module installed.
-- **WimWizard's own source/licence still not fetched.** WimWizard's GitHub pages continue to require an approval that hasn't arrived this session (separate from the MSCatalogLTS question above, which is now resolved). The design here still follows this TODO's own already-researched notes for WimWizard's general approach (search strings, checkpoint handling) rather than reading WimWizard's code directly. Worth revisiting WimWizard's licence before this project reuses anything from it more directly than "the same general approach."
+The script only logs a warning when the host DISM is older than the image. Servicing Win11 24H2 (build 26100) from a Server 2022 host (DISM 10.0.20348) is a known source of odd failures. Options: detect and use the ADK's newer DISM for both the cmdlets (module path) and `dism.exe`, or require a newer build host. It is a small change once decided, but it touches every DISM call, so do it once, before the SCCM step adds more code.
 
 <a id="s6"></a>
 ## 6. Upgrade-package media readiness and validation round 2
 
-**Owner:** Claude + Terry. **Depends on:** 5 (needs Setup DU) and the round-1 results. Old 17.
+**Owner:** Claude + Terry. **Depends on:** 2 (a validated v2.4, including the Setup DU download).
 
 - Confirm whether setup.exe and boot manager files in the media folder should be refreshed from the serviced WinPE (Microsoft step; matters only for the media/ISO path used by Upgrade Packages), and add it if so.
-- v2.1 follows Microsoft's order (LCU, cleanup, then NetFx3 and .NET CU). If a real run shows the .NET CU or the LCU missing after deployment, test the alternative order and let the validation gate (step 3) decide.
+- The engine follows Microsoft's order (LCU, cleanup, then NetFx3 and .NET CU). If a real run shows the .NET CU or the LCU missing after deployment, test the alternative order and let the validation gate (step 3) decide.
 - Terry runs the second round: an OS with the downloader-fed patch set, media folder built, change log and gate checked.
 
 <a id="s7"></a>
 ## 7. SCCM import: new tab, local copy to content source, import, distribute
 
-**Owner:** Claude. **Depends on:** 1 (dated output), 3 (change log for the image comment, validation gate so a failed image is never imported), 5 (a current image), 6 for the upgrade-package path. **Merges old 16 and 21.**
+**Owner:** Claude. **Depends on:** 1 (dated output), 3 (change log for the image comment, validation gate so a failed image is never imported), 5 (a current image), 6 for the upgrade-package path.
 
 **The tab** (next to "Source and targets", "Updates and features", "Languages" and "Log"):
 
@@ -291,7 +159,7 @@ Terry's own working download script (LTSC 2019) found `2026-09 Cumulative Update
 <a id="s8"></a>
 ## 8. Hard cancel, batch queue, scheduled run
 
-**Owner:** Claude. **Depends on:** 3, 5, 7 (they define what one OS run is). **Merges old 14 and 15.**
+**Owner:** Claude. **Depends on:** 3, 5, 7 (they define what one OS run is).
 
 - **Hard cancel:** stop a running DISM call, then clean up (discard/unmount any live image, clear mount folders, dismount ISOs). Cancel today works at the next safe point between operations. The start-up stale-mount cleanup is the safety net for anything orphaned.
 - **ISO mount hygiene (Terry, 2026-09-22):** two related fixes, small enough to do independently of the rest of this step.
@@ -303,11 +171,11 @@ Terry's own working download script (LTSC 2019) found `2026-09 Cumulative Update
 <a id="s9"></a>
 ## 9. Housekeeping and final documentation
 
-**Owner:** Claude. **Ongoing.** Old 19 (the test kit part moved to step 1).
+**Owner:** Claude. **Ongoing.**
 
 - Keep `MediaRefresh_Review_and_Roadmap.md` and this file in step with the script; update the roadmap as steps close.
 - Check WimWizard's licence before reusing any of its code (steps 5 and 7).
-- Version numbering: v2.1 is the draft under test; the first tested build gets a clean version number. Settle one default repository root (header says `C:\mediaRefresh`, GUI says `F:\mediaRefresh`).
+- Version numbering: v2.4 is the build under test; once it passes step 2 it becomes the first tested release with a clean version number (and ideally a file name without the version, with older builds left in `archive\`). Settle one default repository root (header says `C:\mediaRefresh`, GUI says `F:\mediaRefresh`).
 - Minor code items from the review: rename the `$matches` variable; make OS display names match the project list.
 - Operator guide: superseded by step 10's `INSTRUCTIONS.md` (folders, ISO roles, preflight first, where logs and change logs land, plus a full GUI walkthrough) rather than a separate write-up here.
 
@@ -381,20 +249,67 @@ Add these three OSes to the set the tool services, alongside the existing five (
 - **Windows 11 25H2 and 26H2.** Confirm current release/servicing status and exact catalog title conventions before building the profile - Microsoft Update Catalog title text for a newer release can differ from the 24H2 pattern already in use, and 26H2 in particular should be confirmed as actually released and catalog-searchable before relying on it. Decide whether 25H2/26H2 are meant to replace the 24H2 profile over time or run alongside it as separate profiles - affects whether the 24H2 profile is retired later.
 - **Windows Server 2025.** Likely follows the same `serviceAllIndexes = true` / every-index-patched-and-recombined pattern as Server 2022, with the Server language pack pattern (`Microsoft-Windows-Server-Language-Pack_x64_{0}.cab`). Confirm the LCU/NetCU/SafeOS/SetupDU catalog title conventions for 2025 specifically rather than assuming they match 2022's wording.
 - **Source media.** Terry supplies the OS ISO (and FOD/language ISO where relevant) for each new OS in its `ISO\` folder, same as the existing five - nothing here can be built without the source media in hand.
-- **.NET CU multi-term check.** While building these, check whether any of the three need the same two-part NetCU split found for LTSC 2019 (step 5's `catalogSearch.<class>.search` already supports an array of terms if so).
+- **.NET CU check.** While building these, check how each ships its .NET CU. For 1809 it is one combined catalog entry that downloads one file per .NET version (step 5, "Real catalog facts"); a rule's `search` also accepts an array of terms if a product needs more than one entry.
 
 **Done when:** a profile exists for each of the three OSes (built-in or added the same way Terry can add any custom OS profile), the servicing engine runs against each with no code changes beyond the profile files, and at least one real (or dry-run) catalog search per OS confirms the search strings actually return the right update.
 
 ---
 
-## Done so far (for reference)
+<a id="built"></a>
+## Built into v2.4 (reference)
 
-- Recommendation: refactor MediaRefresh_v2 rather than start over or fork WimWizard.
-- v2.1 draft: null-safe patch/language handling, content-based ISO role detection, language packs checked before any mount, Microsoft servicing order (WinRE once, SSU, LP/FOD/fonts, LCU last, cleanup, NetFx3/.NET CU), stale-mount cleanup, DISM log in LOGS, verification mount, refreshed media folder, Preflight-only mode, per-OS default languages, folder aliases.
-- Console "hang until Enter" fixed (Quick Edit off, no console log writes, progress suppressed).
-- IoT 2021 "pattern matched multiple images" error fixed (edition pattern now requires "IoT"; clearer messages).
-- GUI freeze during mount/patch fixed (engine on a background runspace, live log/progress/elapsed time, soft cancel).
-- v2.2 (step 1): JSON profiles, package order manifest, end-of-support warnings, safe dated output with archiving, free-space checks. Test kit stored in the project.
-- v2.3 (step 3): title-bar OS/phase display, per-image HTML + CSV change log (copied into NEWWIM), validation gate (PASSED/FAILED/Skipped, flags rather than blocks). Test kit extended to 172 checks.
-- v2.4 fixes (2026-09-23, from Terry's diagnostic run against the real catalog): architecture checked from the title and file names (results have no Architecture property; the x86 .NET entry was being picked), every file of a multi-file catalog entry kept (the combined 1809 .NET CU KB5126144 = KB5126043 + KB5126048), 1809 NetCU switched to the combined entry, title filters on every built-in LCU rule, not-applicable .NET CU parts skipped with a WARN. Test kit 231 checks. Then the first real dry run (LTSC 2019): LCU and .NET CU picked correctly; a search with no result (Safe OS DU) crashed the run on `.Count` under StrictMode - fixed, test kit 233 checks. 1809 Safe OS DU real title supplied by Terry: rules gained `productFilter`/`productExclude` (the Safe OS DU is only identified by its Products field); 1809 SafeOS/SetupDU rules rebuilt on it (SetupDU inferred). Test kit 237 checks.
-- v2.4 (step 5): MSCatalogLTS acquisition layer - per-profile catalogSearch rules, "Download patches..." with a dry-run confirmation, download + prune into PATCHES\<class>, PATCHES\SSU never touched. Corrected against the real MSCatalogLTS/MSCatalog source Terry pointed to (Marco-online/MSCatalogLTS, traced to ryan-jan/MSCatalog): real `Get-MSCatalogUpdate`/`Save-MSCatalogUpdate` parameter names, no invalid `-Confirm`, defensive `Get-Command` parameter detection, "DownloadDialog" open point resolved as a non-issue. After Terry's first real-catalog test (LTSC 2019), `catalogSearch.<class>.search` now also accepts an array of search terms (not just one), so a class needing more than one parallel download - like .NET CU on 1809, which ships separate "3.5+4.7.2" and "3.5+4.8" updates - downloads and keeps every term's match instead of just the single newest; LTSC 2019's NetCU rule now uses the two real search strings Terry found. Test kit extended to 211 checks. Open points: whether 21H2/Server 2022 need the same two-part NetCU split (not yet checked), remaining catalog search strings need a real spot-check, checkpoint-CU chain discovery is profile-supplied not automatic, WimWizard's own source still could not be fetched this session.
+These steps are built and pass the mock test kit. What is left for them is real-world confirmation, which is tracked in step 2. They are kept here because later steps build on them and refer to them by number.
+
+<a id="s1"></a>
+### 1. Foundation: JSON profiles, package order, end-of-support dates, safe dated output
+
+- **1a. OS profiles as JSON files.** One file per OS in `Profiles\` beside the script: display name, folder and alternate folder names, edition regex / preferred index, service-all-indexes flag, language pack pattern, default languages, SSU required flag, package order, end-of-support date, catalog search rules, notes. The built-in profiles are written out when the folder is empty; "Reload profiles" re-reads them and every run re-reads them too. A bad or incomplete file is reported and skipped, never crashes the run. Unknown keys are ignored, so later steps (7: SCCM defaults) can add keys without a new format. A new OS needs a JSON file, not a code change.
+- **1b. Package order manifest.** Per package class (SSU, LCU, .NET CU, Safe OS DU, Setup DU), an optional ordered list of wildcard file-name patterns (`packageOrder`). Matching files go first in that order, the rest in name order. The applied order is logged; a pattern that matches nothing logs a WARN.
+- **1c. End-of-support dates.** `endOfSupport` per profile: a WARN at the start of a run when past or within 180 days, and a line under the OS selector (red when near or past). Known dates: LTSC 2021 KMS **2027-01-13** (already inside the 180-day window), IoT LTSC 2021 2032-01-14, LTSC 2019 2029-01-10. The decision on when to retire the KMS image stays with Terry.
+- **1d. Safe dated output.** Before a real run writes anything, the previous `NEWWIM` output moves to `NEWWIM\Archive\<yyyyMMdd_HHmmss>`; the newest `keepArchives` (default 3; 0 keeps all) are kept. A free-space check in preflight and before a real run: about 3x the source WIM plus 6 GB scratch, plus the ISOs for media/ISO builds, never below the profile's `minFreeGB` (30 GB client, 60 GB Server). `spaceCheck` = enforce, warn or off.
+- **1e. Test kit** in `testkit\`: see `testkit\README_TESTKIT.md`.
+
+<a id="s3"></a>
+### 3. Run reporting: title-bar phase, change log (HTML + CSV), validation gate
+
+All three read the same instrumentation: a `Set-Phase` call at each stage boundary, an `Add-ChangeEvent` call at each point something is successfully added to the image, the ISO file names from the role map, and the finished image's contents read once from the read-only verification mount (`Test-OutputWim`).
+
+- **3a. Title bar.** "WimForge" on the left; right-aligned, the OS being worked on (the selected OS while idle) and the current phase below it. Phases include Mounting ISOs, Clearing stale mounts, Exporting image, Servicing WinRE, Adding SSU, Adding LCU, language packs, FODs and fonts, Component cleanup, .NET, boot.wim, Verifying, Building media / ISO, Writing change log, then Done / Failed / Cancelled. Later steps add their own phases (11: Removing apps; 7: Copying to content source, Importing to SCCM; 8: "OS 2 of 3").
+- **3b. Per-image change log.** `LOGS\ChangeLog_<OS>_<build>_<timestamp>.html` and `.csv` from one row list, copied beside the output in `NEWWIM\`. Header: OS and final build, every source ISO by file name (OS ISO first), build before/after, run date, tool version, edition/index, languages, gate result. **Section A:** everything this run changed, with a timestamp (SSU, LCU, language packs, fonts, capabilities, Safe OS, .NET CU, WinRE, NetFx3, cleanup), with the KB parsed from the file name. **Section B:** the finished image's packages, capabilities, enabled features, provisioned appx, staged appx folders and hotfixes (derived from package names, since `Get-HotFix` is live-only). Columns: `Date | Section | Item | Version / KB | State | Source | Index`. With Verify off, only Section A is written and the log says so. Terry's inventory script was the starting point for Section B (see step 10d).
+- **3c. Validation gate.** `PASSED` when verification finds no issues (RollupFix, language pack and font checks), `FAILED` when it finds any, `Skipped` when Verify was off or the run was Preflight-only. **Decision: the gate flags, it does not block.** A failed image is still written, but the log says `VALIDATION GATE: FAILED` at ERROR level, the change log header is marked FAILED and the completion dialog warns. Step 7 decides whether to refuse a failed image at import.
+
+<a id="s5"></a>
+### 5. Acquisition layer: MSCatalogLTS download, Setup DU / Safe OS DU, checkpoint CUs
+
+**Module:** MSCatalogLTS ([Marco-online/MSCatalogLTS](https://github.com/Marco-online/MSCatalogLTS)), a fork of [ryan-jan/MSCatalog](https://github.com/ryan-jan/MSCatalog). The parameter handling is based on the upstream source; see 2A for the check against the installed module.
+
+**How it works**
+
+- **"Download patches..."** (next to Reload profiles) always starts with a dry run: it searches the catalog for every ticked class, then lists exactly what it found (title and KB per class) and asks for confirmation before anything is downloaded or removed. A class with no match is listed as skipped and the other classes still run. It runs on the background runspace, exclusive with a servicing run; Cancel works the same way.
+- **Profile rules** (`catalogSearch.<class>` for `LCU`, `NetCU`, `SafeOS`, `SetupDU`): `search` (a string, or an array of strings searched independently), `architecture` (default `x64`; `''` switches the check off), `excludePreview` (default true), `buildFilter` (regex against the title), `productFilter` / `productExclude` (regex against the Products field), `checkpointKBs`. Invalid rules and invalid regexes are refused when the profile loads. `catalogSearch.SSU` is refused: **SSUs stay manual** and `PATCHES\SSU` is never touched.
+- **Engine:** installs MSCatalogLTS from the Gallery (CurrentUser) on first use, reads the base image build from the OS ISO for `{build}`/`{version}` substitution, searches, filters and sorts newest first, downloads with `Save-MSCatalogUpdate` (passing `-DownloadAll` / `-AcceptMultiFileUpdates` / `-Architecture` / `-ExcludePreview` only when the installed module declares them), then prunes `PATCHES\<class>` to this run's files plus the checkpoint list, logging every keep and remove. Every download is recorded with `Add-ChangeEvent`, so it appears in the next servicing run's change log.
+- **Servicing:** a .NET CU part that does not apply to the image (0x800f081e) is skipped with a WARN and a change-log line; every other class still fails on it.
+
+**Real catalog facts (from Terry's LTSC 2019 tests, 2026-09-23)**
+
+- Results have **no Architecture property** (only Title, Products, Classification, LastUpdated, Version, Size, SizeInBytes, Guid, FileNames), and the search matches words loosely: "for x64" in the search still returns the x86 entry. The x86 .NET entry names no architecture in its title. So the title must name the profile's architecture, and a downloaded file whose name names another architecture is deleted with a WARN.
+- **A catalog entry can download several files.** The combined 1809 .NET CU `...3.5, 4.7.2 and 4.8 for Windows 10 Version 1809 for x64 (KB5126144)` downloads `windows10.0-kb5126043-x64.msu` (3.5 + 4.7.2) and `windows10.0-kb5126048-x64-ndp48.msu` (3.5 + 4.8). No file carries the title KB. All files are kept, each logged under its own KB "part of catalog entry KB5126144".
+- **LCU searches also match** the .NET CU and Dynamic Updates from the same Patch Tuesday, so every built-in LCU rule has a title filter anchored at the start, e.g. `^\d{4}-\d{2} Cumulative Update for Windows 10 Version 1809`.
+- **The 1809 Safe OS DU** is titled plain `Dynamic Update for Windows 10 Version 1809 for x64-based Systems` (KB5120247, Critical Updates); only its Products field ("Windows 10 and later Dynamic Update, Windows Safe OS Dynamic Update") says Safe OS. Hence `productFilter` / `productExclude`.
+- `Save-MSCatalogUpdate` names the saved file after the download URL, so the catalog's real file name is kept; no special download call is needed.
+
+**Open design points**
+
+- **Checkpoint CUs (Win11 24H2+, Server 2025).** When adding FODs or language packs, every earlier checkpoint MSU plus the target LCU must be in one folder and installed together. Today `checkpointKBs` is a KB list maintained by hand per profile (empty everywhere), not discovered from the catalog. Fill it in when a profile needs it, or build proper chain discovery (can be looked at during 2A with live catalog access).
+- **WimWizard licence.** WimWizard's source and licence have not been read. The design only follows its general approach (search strings, checkpoint handling). Check the licence before reusing anything more directly.
+
+---
+
+## History
+
+- Recommendation: refactor MediaRefresh_v2 rather than start over or fork WimWizard (`MediaRefresh_Review_and_Roadmap.md`).
+- v2.1: null-safe patch/language handling, ISO roles detected by content, language packs checked before any mount, Microsoft servicing order (WinRE once, SSU, LP/FOD/fonts, LCU last, cleanup, NetFx3/.NET CU), stale-mount cleanup, DISM log in LOGS, verification mount, refreshed media folder, Preflight-only mode, per-OS default languages, folder aliases. Console "hang until Enter" fixed; IoT 2021 edition matching fixed; GUI kept responsive with a background runspace and soft cancel.
+- v2.2: step 1. First real run (IoT LTSC 2021, 2026-09-21): completed, 0 verify issues, slow (see 2B antivirus note).
+- v2.3: step 3.
+- v2.4: step 5, then fixed after Terry's real-catalog tests on 2026-09-23 (architecture from titles, multi-file entries, combined 1809 .NET CU, LCU title filters, not-applicable .NET parts skipped, empty-result crash, `productFilter` / `productExclude`).
+- 2026-09-24: this list refocused on validating v2.4; v2_original, v2.1, v2.2, v2.3 and the saved .NET CU conversation moved to `archive\`; the test kit now defaults to `MediaRefresh_v2.4.ps1` and runs on Windows (CRLF fix in `profiles.ps1`).

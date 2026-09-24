@@ -128,8 +128,8 @@ Check 'keep 0 = keep every archive' (@(Get-ChildItem (Join-Path $k0.NewWim 'Arch
 
 Write-Host "`n=== P9 free-space check ==="
 # restore the real function (mocks.ps1 replaced it) so we can also test the raw reader, then mock per case
-$real = (Get-Content -Raw $(if ($env:MR_SCRIPT) { $env:MR_SCRIPT } else { '/mnt/user-data/outputs/MediaRefresh_v2.2.ps1' }))
-$gm = [regex]::Match($real, '(?s)function Get-FreeSpaceGB \{.*?\n\}\n').Value
+$real = (Get-Content -Raw $(if ($env:MR_SCRIPT) { $env:MR_SCRIPT } else { (Join-Path $PSScriptRoot '../MediaRefresh_v2.4.ps1') }))
+$gm = [regex]::Match($real, '(?s)function Get-FreeSpaceGB \{.*?\r?\n\}\r?\n').Value
 Invoke-Expression $gm
 $fs = Get-FreeSpaceGB -Path $tmp
 Check 'real reader returns a positive number' ($fs -gt 0) "$fs"

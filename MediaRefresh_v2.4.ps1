@@ -14,7 +14,7 @@
       ->  LCU (final)  ->  component cleanup  ->  NetFx3 -> .NET CU  ->  export -> verify
 
 .NOTES
-    Version 2.4.0 (draft - mock-tested only; never run against real images or a real DISM yet).
+    Version 2.4.0 (draft - mock-tested; real catalog dry runs for LTSC 2019 only; never run against real images or a real DISM yet).
       * Added: acquisition layer (step 5) - "Download patches..." searches the Microsoft Update Catalog via the
                MSCatalogLTS module using per-profile catalogSearch rules, shows a dry-run preview of what it found,
                and on confirmation downloads into PATCHES\<class> and prunes superseded files. PATCHES\SSU is never
@@ -37,7 +37,7 @@
                only marked as Safe OS by its Products entry; the 1809 SafeOS/SetupDU rules now use that.
       * Changed: the built-in LCU rules have a title filter so a .NET CU or Dynamic Update released the same day can
                no longer be picked as the LCU; the 1809 .NET CU rule searches for the combined entry.
-    Version 2.2.0 (draft - test against non-production images first). v2.1 remains the build under real-image test.
+    Version 2.2.0 (draft - test against non-production images first).
       * Added: OS profiles are JSON files in a Profiles folder beside the script (created from the built-in profiles the first
                time the folder is empty). Edit a file and press "Reload profiles"; a bad file is reported and skipped.
                New OSes need a JSON file, not a code change.
