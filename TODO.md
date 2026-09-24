@@ -49,6 +49,8 @@ This PC has Windows PowerShell 5.1 with **MSCatalogLTS 2.1.0.1** installed (not 
 | Win11 24H2 | KB5129195 (26100.9457, entry also carries checkpoint KB5043080) | KB5126052 (3.5 and 4.8.1) | KB5125758 | KB5127216 |
 | Server 2022 | KB5129237 | KB5126149 (3.5, 4.8 and 4.8.1) | KB5122889 | KB5126031 |
 
+Terry's real download run the day before (`MediaRefresh_20260923_084200.log`, LTSC 2019) shows the same problem from the GUI: the LCU (KB5129238) and both .NET CU files (KB5126043, KB5126048) were downloaded and the older files pruned correctly, but Safe OS and Setup DU got 0 raw results for a rule that is correct. That is the module behaviour fixed below.
+
 **Fixed in v2.4 (test kit now 255 checks)**
 
 - **Safe OS and Setup DU searches could never return anything.** The installed MSCatalogLTS 2.1.0.1 differs from the upstream source the script was written against: it drops every title containing "Dynamic" unless `-IncludeDynamic` is passed, reads only the first page (25 rows) unless `-AllPages` is passed, and rewrites a search starting "Dynamic Update for ..." into its own "Cumulative Update for <OS>" query. `Invoke-CatalogUpdateSearch` now passes `-IncludeDynamic` and `-AllPages` when the module declares them, and sends the search with a leading space so the module's rewrite does not match (the catalog trims it). It also passes `-IncludePreview` when a rule sets `excludePreview` to false (2.1.0.1 has no `-ExcludePreview`; previews are hidden by default).
