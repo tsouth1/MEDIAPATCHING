@@ -6,8 +6,8 @@ Last updated: 2026-09-24. The list now tracks one script only, v2.4. Older versi
 
 Where v2.4 stands:
 
-- **Mock test kit:** 7 suites, 237 checks, all passing (PowerShell 7.6 on Windows, 2026-09-24).
-- **Real Microsoft Update Catalog:** dry runs for LTSC 2019 only (2026-09-23). LCU and .NET CU were picked correctly. The Safe OS DU / Setup DU fixes made after that run have not been re-run yet.
+- **Mock test kit:** 7 suites, 255 checks, all passing on Windows PowerShell 5.1 and PowerShell 7.6 (2026-09-24).
+- **Real Microsoft Update Catalog:** every built-in rule for all five profiles picks the right entry from the live catalog (2026-09-24, step 2A). Nothing has been downloaded through the GUI since those fixes.
 - **Real images and real DISM:** never run on v2.4. A v2.2 run of IoT LTSC 2021 finished with 0 verify issues on 2026-09-21, but v2.3 and v2.4 changed the servicing code (package handling, verification, .NET CU skipping), so that run does not count for v2.4.
 
 ## Index
@@ -16,7 +16,7 @@ Step numbers are kept from earlier versions of this list because the script, the
 
 | # | Step | Owner | Status |
 |---|------|-------|--------|
-| [2](#s2) | **Validate v2.4:** real catalog, real servicing runs, feature checks | Claude (catalog) + Terry (servicing) | **Now** |
+| [2](#s2) | **Validate v2.4:** real catalog, real servicing runs, feature checks | Claude (catalog) + Terry (servicing) | **Now** (2A catalog done; 2B-2D open) |
 | [4](#s4) | Host DISM vs image build (ADK DISM decision) | Claude + Terry | Needs the build-host answer and the Win11 24H2 run from step 2 |
 | [6](#s6) | Upgrade-package media readiness and validation round 2 | Claude + Terry | After 2 |
 | [7](#s7) | SCCM import: new tab, local copy to content source, import, distribute | Claude | After 2 |
@@ -36,18 +36,31 @@ Order of work: validate v2.4 first (2), settle the DISM question (4), then the n
 
 **Owner:** Claude for 2A, Terry for 2B (Claude reads the logs), both for 2C. **Done when:** 2A, 2B and 2C are all ticked off, and any fixes found along the way are made in v2.4 with a test added for each.
 
-### 2A. Real catalog (Claude, on Terry's PC)
+### 2A. Real catalog (Claude, on Terry's PC) - done 2026-09-24
 
-This no longer needs Terry to relay results. Checked 2026-09-24: this PC has Windows PowerShell 5.1 with **MSCatalogLTS 2.1.0.1** installed (not installed for PowerShell 7), and catalog.update.microsoft.com is reachable. Claude can run the searches directly.
+This PC has Windows PowerShell 5.1 with **MSCatalogLTS 2.1.0.1** installed (not installed for PowerShell 7), and catalog.update.microsoft.com is reachable, so Claude ran every built-in rule through the script's own engine (`Search-CatalogCandidates`) against the live catalog.
 
-- [ ] **Action for Terry before the next GUI dry run:** profile JSON files are only generated when the `Profiles` folder is empty, so an existing `Profiles\*.json` keeps the old `catalogSearch` values. Delete the `Profiles` folder (or the files you have not hand-edited) and press "Reload profiles", or copy the new `catalogSearch` values in by hand.
-- [ ] **LTSC 2019 (1809), re-check.** SafeOS should pick `2026-08 Dynamic Update for Windows 10 Version 1809 for x64-based Systems (KB5120247)`. SetupDU should pick a *different* "Dynamic Update for Windows 10 Version 1809" entry. **The SetupDU rule is inferred, not confirmed:** it assumes the Setup DU has the same title shape and a Products value without "Safe OS".
-- [ ] **LTSC 2021 KMS and IoT (21H2).** The NetCU, SafeOS and SetupDU searches have never been tried. Expect the same shape as 1809: one combined .NET CU entry that downloads one file per .NET version (e.g. "3.5, 4.8 and 4.8.1"), and a Safe OS DU identified only by its Products field. Set `search`, `buildFilter` and `productFilter`/`productExclude` from the real results.
-- [ ] **Server 2022.** Same checks as 21H2. The LCU search and title filter also need a first real test.
-- [ ] **Win11 24H2.** The LCU search string (`Windows 11, version 24H2`) and the SafeOS/SetupDU searches are untested. Also check whether the current LCU needs a checkpoint chain (see step 5, "Checkpoint CUs").
-- [ ] **Module parameter check.** Compare `Get-Command Get-MSCatalogUpdate -Syntax` and `Get-Command Save-MSCatalogUpdate -Syntax` from the installed module with the parameters the script passes. The script only passes optional parameters the module declares, but this has only been checked against the upstream ryan-jan/MSCatalog source, not the LTS fork itself.
-- [ ] **Run the test kit under Windows PowerShell 5.1 as well as 7.** The empty-result `.Count` crash was a 5.1-only behaviour that the PowerShell 7 test run could not catch.
-- [ ] Update the built-in profiles in the script to match whatever the real searches show, so a fresh `Profiles` folder is correct.
+**What the live catalog picks now (x64, newest first, 2026-09-24)**
+
+| Profile | LCU | .NET CU | Safe OS DU | Setup DU |
+|---|---|---|---|---|
+| LTSC 2019 (1809) | KB5129238 | KB5126144 (3.5, 4.7.2 and 4.8) | KB5122886 (2026-09) | KB5068795 (2025-11) |
+| LTSC 2021 IoT / KMS (21H2) | KB5129236 | KB5126145 (3.5, 4.8 and 4.8.1) | KB5122887 | KB5126029 |
+| Win11 24H2 | KB5129195 (26100.9457, entry also carries checkpoint KB5043080) | KB5126052 (3.5 and 4.8.1) | KB5125758 | KB5127216 |
+| Server 2022 | KB5129237 | KB5126149 (3.5, 4.8 and 4.8.1) | KB5122889 | KB5126031 |
+
+**Fixed in v2.4 (test kit now 255 checks)**
+
+- **Safe OS and Setup DU searches could never return anything.** The installed MSCatalogLTS 2.1.0.1 differs from the upstream source the script was written against: it drops every title containing "Dynamic" unless `-IncludeDynamic` is passed, reads only the first page (25 rows) unless `-AllPages` is passed, and rewrites a search starting "Dynamic Update for ..." into its own "Cumulative Update for <OS>" query. `Invoke-CatalogUpdateSearch` now passes `-IncludeDynamic` and `-AllPages` when the module declares them, and sends the search with a leading space so the module's rewrite does not match (the catalog trims it). It also passes `-IncludePreview` when a rule sets `excludePreview` to false (2.1.0.1 has no `-ExcludePreview`; previews are hidden by default).
+- **The catalog returns nothing for a search over 100 characters** (106 characters: 0 results; 93: 41). Profiles now refuse such a search when they load, with a message saying so.
+- **Built-in rules corrected from the real results:** 21H2 and Server 2022 NetCU use the combined "3.5, 4.8 and 4.8.1" entry (two files each, like 1809); 21H2 and Server 2022 Safe OS / Setup DU use the 1809 pattern (plain "Dynamic Update for ..." title, told apart by the Products field); Win11 24H2 gained a NetCU rule (its .NET CU *is* a separate catalog entry) and title filters on Safe OS / Setup DU (its titles changed from "Windows 11 Version 24H2" to "Windows 11, version 24H2" in 2026-05; the filters accept both). Profile notes now say the rules were checked on 2026-09-24.
+- **Test kit under Windows PowerShell 5.1:** two test-only fixes (a three-part `Join-Path`, and a JSON check that assumed PowerShell 7 spacing). All 7 suites pass on 5.1 and 7.
+
+**Still open**
+
+- [ ] **Action for Terry before the next GUI dry run:** profile JSON files are only generated when the `Profiles` folder is empty, so an existing `Profiles\*.json` keeps the old `catalogSearch` values (which cannot find Safe OS / Setup DU, 21H2 / Server 2022 .NET CUs, or the Win11 .NET CU). Delete the `Profiles` folder (or the files you have not hand-edited) and press "Reload profiles".
+- [ ] **One real download dry run + download from the GUI**, to confirm the multi-file entries land as expected: 21H2 / Server 2022 .NET CU (a 4.8 and a 4.8.1 file each; the part that does not apply is skipped at servicing) and the Win11 24H2 LCU (the LCU plus checkpoint KB5043080, applied checkpoint first because it sorts first by name).
+- [ ] **1809 Setup DU:** the newest one is from 2025-11. Setup DUs for 1809 are released less often than Safe OS DUs, so this is expected, but worth a glance at the catalog before relying on it.
 
 ### 2B. Real servicing runs (Terry, on the build machine)
 
@@ -281,26 +294,31 @@ All three read the same instrumentation: a `Set-Phase` call at each stage bounda
 <a id="s5"></a>
 ### 5. Acquisition layer: MSCatalogLTS download, Setup DU / Safe OS DU, checkpoint CUs
 
-**Module:** MSCatalogLTS ([Marco-online/MSCatalogLTS](https://github.com/Marco-online/MSCatalogLTS)), a fork of [ryan-jan/MSCatalog](https://github.com/ryan-jan/MSCatalog). The parameter handling is based on the upstream source; see 2A for the check against the installed module.
+**Module:** MSCatalogLTS ([Marco-online/MSCatalogLTS](https://github.com/Marco-online/MSCatalogLTS)), a fork of [ryan-jan/MSCatalog](https://github.com/ryan-jan/MSCatalog). The parameter handling was checked against the installed 2.1.0.1 on 2026-09-24 (step 2A); it differs from the upstream source in ways that matter (below).
 
 **How it works**
 
 - **"Download patches..."** (next to Reload profiles) always starts with a dry run: it searches the catalog for every ticked class, then lists exactly what it found (title and KB per class) and asks for confirmation before anything is downloaded or removed. A class with no match is listed as skipped and the other classes still run. It runs on the background runspace, exclusive with a servicing run; Cancel works the same way.
 - **Profile rules** (`catalogSearch.<class>` for `LCU`, `NetCU`, `SafeOS`, `SetupDU`): `search` (a string, or an array of strings searched independently), `architecture` (default `x64`; `''` switches the check off), `excludePreview` (default true), `buildFilter` (regex against the title), `productFilter` / `productExclude` (regex against the Products field), `checkpointKBs`. Invalid rules and invalid regexes are refused when the profile loads. `catalogSearch.SSU` is refused: **SSUs stay manual** and `PATCHES\SSU` is never touched.
-- **Engine:** installs MSCatalogLTS from the Gallery (CurrentUser) on first use, reads the base image build from the OS ISO for `{build}`/`{version}` substitution, searches, filters and sorts newest first, downloads with `Save-MSCatalogUpdate` (passing `-DownloadAll` / `-AcceptMultiFileUpdates` / `-Architecture` / `-ExcludePreview` only when the installed module declares them), then prunes `PATCHES\<class>` to this run's files plus the checkpoint list, logging every keep and remove. Every download is recorded with `Add-ChangeEvent`, so it appears in the next servicing run's change log.
+- **Engine:** installs MSCatalogLTS from the Gallery (CurrentUser) on first use, reads the base image build from the OS ISO for `{build}`/`{version}` substitution, searches, filters and sorts newest first, downloads with `Save-MSCatalogUpdate` (search: `-IncludeDynamic`, `-AllPages`, `-Architecture`, and `-IncludePreview` / `-ExcludePreview` per the rule; download: `-DownloadAll` / `-AcceptMultiFileUpdates`; each only when the installed module declares it), then prunes `PATCHES\<class>` to this run's files plus the checkpoint list, logging every keep and remove. Every download is recorded with `Add-ChangeEvent`, so it appears in the next servicing run's change log.
 - **Servicing:** a .NET CU part that does not apply to the image (0x800f081e) is skipped with a WARN and a change-log line; every other class still fails on it.
 
-**Real catalog facts (from Terry's LTSC 2019 tests, 2026-09-23)**
+**Real catalog facts (Terry's LTSC 2019 tests 2026-09-23; all profiles 2026-09-24)**
 
 - Results have **no Architecture property** (only Title, Products, Classification, LastUpdated, Version, Size, SizeInBytes, Guid, FileNames), and the search matches words loosely: "for x64" in the search still returns the x86 entry. The x86 .NET entry names no architecture in its title. So the title must name the profile's architecture, and a downloaded file whose name names another architecture is deleted with a WARN.
 - **A catalog entry can download several files.** The combined 1809 .NET CU `...3.5, 4.7.2 and 4.8 for Windows 10 Version 1809 for x64 (KB5126144)` downloads `windows10.0-kb5126043-x64.msu` (3.5 + 4.7.2) and `windows10.0-kb5126048-x64-ndp48.msu` (3.5 + 4.8). No file carries the title KB. All files are kept, each logged under its own KB "part of catalog entry KB5126144".
 - **LCU searches also match** the .NET CU and Dynamic Updates from the same Patch Tuesday, so every built-in LCU rule has a title filter anchored at the start, e.g. `^\d{4}-\d{2} Cumulative Update for Windows 10 Version 1809`.
 - **The 1809 Safe OS DU** is titled plain `Dynamic Update for Windows 10 Version 1809 for x64-based Systems` (KB5120247, Critical Updates); only its Products field ("Windows 10 and later Dynamic Update, Windows Safe OS Dynamic Update") says Safe OS. Hence `productFilter` / `productExclude`.
 - `Save-MSCatalogUpdate` names the saved file after the download URL, so the catalog's real file name is kept; no special download call is needed.
+- **The same Products pattern holds for 21H2 and Server 2022:** Safe OS and Setup DUs share the plain title "Dynamic Update for ..." and differ only in Products. Win11 24H2 names them in the title ("Safe OS Dynamic Update", "Setup Dynamic Update").
+- **Combined .NET CU entries everywhere except Win11:** 21H2 and Server 2022 have a "3.5, 4.8 and 4.8.1" entry (a `-ndp48` and a `-ndp481` file) beside separate "3.5 and 4.8" / "3.5 and 4.8.1" entries. Win11 24H2 has one "3.5 and 4.8.1" entry.
+- **MSCatalogLTS 2.1.0.1 behaviour:** hides Dynamic Updates without `-IncludeDynamic`; reads one page of 25 rows without `-AllPages`; hides previews unless `-IncludePreview`; rewrites searches that start with an update-type phrase ("Dynamic Update for ...", "Cumulative Update for ...") or that name "Windows 10/11 <version>" without an update type, into its own query. The engine sends every search with a leading space to keep it as written.
+- **The catalog returns nothing for a search over 100 characters.** Profiles refuse one when they load.
+- **Title wording changes over time:** Win11 24H2 titles changed from "Windows 11 Version 24H2" to "Windows 11, version 24H2" around 2026-05, so the Win11 title filters accept both.
 
 **Open design points**
 
-- **Checkpoint CUs (Win11 24H2+, Server 2025).** When adding FODs or language packs, every earlier checkpoint MSU plus the target LCU must be in one folder and installed together. Today `checkpointKBs` is a KB list maintained by hand per profile (empty everywhere), not discovered from the catalog. Fill it in when a profile needs it, or build proper chain discovery (can be looked at during 2A with live catalog access).
+- **Checkpoint CUs (Win11 24H2+, Server 2025).** When adding FODs or language packs, every earlier checkpoint MSU plus the target LCU must be in one folder and installed together. **Found in 2A:** the current Win11 24H2 LCU catalog entry (KB5129195) carries its checkpoint (KB5043080) as a second file, so the "keep every file of an entry" download already fetches the chain, and the checkpoint sorts first by name, so it is applied first. `checkpointKBs` (a hand-kept KB list, empty everywhere) stays as a fallback for a chain an entry does not carry. Confirm on the first real Win11 24H2 run (2B).
 - **WimWizard licence.** WimWizard's source and licence have not been read. The design only follows its general approach (search strings, checkpoint handling). Check the licence before reusing anything more directly.
 
 ---
@@ -312,4 +330,5 @@ All three read the same instrumentation: a `Set-Phase` call at each stage bounda
 - v2.2: step 1. First real run (IoT LTSC 2021, 2026-09-21): completed, 0 verify issues, slow (see 2B antivirus note).
 - v2.3: step 3.
 - v2.4: step 5, then fixed after Terry's real-catalog tests on 2026-09-23 (architecture from titles, multi-file entries, combined 1809 .NET CU, LCU title filters, not-applicable .NET parts skipped, empty-result crash, `productFilter` / `productExclude`).
+- 2026-09-24: step 2A done - every built-in catalog rule checked against the live catalog; Safe OS / Setup DU searches fixed (module hid Dynamic Updates and rewrote the search), 100-character search guard, 21H2 / Server 2022 / Win11 rules corrected, test kit passing on Windows PowerShell 5.1 (255 checks).
 - 2026-09-24: this list refocused on validating v2.4; v2_original, v2.1, v2.2, v2.3 and the saved .NET CU conversation moved to `archive\`; the test kit now defaults to `MediaRefresh_v2.4.ps1` and runs on Windows (CRLF fix in `profiles.ps1`).

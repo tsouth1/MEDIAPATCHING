@@ -36,8 +36,9 @@ module), with a dry-run preview before anything is downloaded.
 ## Status
 
 v2.4 is being validated (see `TODO.md` step 2). It passes the mock test kit
-(237 checks) and has had real Microsoft Update Catalog dry runs for
-LTSC 2019, but has not yet serviced a real image. Treat it as a draft and
+(255 checks, on Windows PowerShell 5.1 and 7) and every built-in catalog
+rule has been checked against the live Microsoft Update Catalog, but it has
+not yet serviced a real image. Treat it as a draft and
 test on non-production images first.
 
 ## Requirements

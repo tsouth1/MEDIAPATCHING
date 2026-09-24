@@ -66,7 +66,7 @@ Check 'Section B inventory was collected (Verify=true)' (@($script:VerifyInvento
 Check 'change log files exist and were copied to NEWWIM' (
     ($null -ne $script:LastResult.ChangeLogHtml) -and (Test-Path -LiteralPath $script:LastResult.ChangeLogHtml) -and
     ($null -ne $script:LastResult.ChangeLogCsv) -and (Test-Path -LiteralPath $script:LastResult.ChangeLogCsv) -and
-    (Test-Path -LiteralPath (Join-Path (Join-Path $base 'Win10_Enterprise_LTSC_2019') 'NEWWIM' (Split-Path $script:LastResult.ChangeLogHtml -Leaf)))
+    (Test-Path -LiteralPath (Join-Path (Join-Path (Join-Path $base 'Win10_Enterprise_LTSC_2019') 'NEWWIM') (Split-Path $script:LastResult.ChangeLogHtml -Leaf)))
 )
 $csvRows2 = @(Import-Csv -LiteralPath $script:LastResult.ChangeLogCsv)
 $missingCols2 = @(@('Date','Section','Item','Version / KB','State','Source','Index') | Where-Object { $_ -notin $csvRows2[0].PSObject.Properties.Name })

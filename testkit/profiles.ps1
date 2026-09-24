@@ -28,7 +28,7 @@ foreach ($k in $b.Keys) { foreach ($prop in 'Folder','EditionRegex','PreferredIn
   if ((@($b[$k].AltFolders) -join ',') -ne (@($t[$k].AltFolders) -join ',')) { $same=$false } }
 Check 'file round trip equals the built-ins' $same
 $json = Get-Content (Join-Path $dir 'Win10_Enterprise_LTSC_2021_KMS.json') -Raw
-Check 'JSON is readable, camelCase, arrays stay arrays' ($json -match '"editionRegex"' -and $json -match '"altFolders": \[\]' -and $json -match '"defaultLanguages": \[')
+Check 'JSON is readable, camelCase, arrays stay arrays' ($json -match '"editionRegex"' -and $json -match '"altFolders":\s*\[\s*\]' -and $json -match '"defaultLanguages":\s*\[')
 Check 'no BOM in the files' ([System.IO.File]::ReadAllBytes((Join-Path $dir 'Win11_Enterprise_24H2.json'))[0] -eq 0x7B)
 
 Write-Host "`n=== P3 a new OS by file only; deleted built-in stays deleted; edits apply ==="
