@@ -198,4 +198,29 @@ Check 'no mount or export happened' (-not ($script:Calls -match '^Mount |^Export
 Check 'ISOs were dismounted afterwards' (@($script:Calls | Where-Object { $_ -like 'IsoDismount*' }).Count -ge 1)
 $script:FreeGB = 500.0
 
+Write-Host "`n=== E12 Win11 LCU with its checkpoint in PATCHES\LCU: only the target LCU is ever added (Microsoft's method) ==="
+# After the 2026-09-24 download the Win11 LCU folder holds the out-of-band LCU and checkpoint KB5043080 (the catalog
+# entry carries both). DISM applies the checkpoint from the same folder when needed; it must never be added directly.
+Reset-Test; $script:ImageCount=1; $script:SourceNames=@('Windows 11 Pro','Windows 11 Pro N','Windows 11 Enterprise')
+$lcu12 = Join-Path $base 'Win11Enterprise_24H2\PATCHES\LCU'; Get-ChildItem $lcu12 -File -ErrorAction SilentlyContinue | Remove-Item -Force
+Fake-Iso 'Win11Enterprise_24H2' 'os11' @('sources/install.wim', 'sources/boot.wim')
+Patches 'Win11Enterprise_24H2' @('LCU/windows11.0-kb5043080-x64.msu', 'LCU/windows11.0-kb5129195-x64.msu')
+$logs12 = [System.Collections.Generic.List[string]]::new()
+$wl = ${function:Write-Log}; function Write-Log { param($Message,$Level='INFO') $logs12.Add("[$Level] $Message") }
+Invoke-MediaRefresh (Opts 'Windows 11 Enterprise 24H2' @() @{ NetFx3=$false; Boot=$true })
+Set-Item function:Write-Log $wl
+$add12 = @($script:Calls -match '^AddPkg windows11\.0-kb')
+Check 'the checkpoint KB5043080 is never added directly (install.wim, WinRE or WinPE)' (@($add12 -match 'kb5043080').Count -eq 0) ($add12 -join ' | ')
+Check 'the target LCU KB5129195 is added to install.wim, WinRE and boot.wim' (@($add12 -match 'kb5129195').Count -ge 3) ($add12 -join ' | ')
+Check 'the log says only the target is installed and names the checkpoint left in the folder' ([bool]($logs12 -match 'LCU: only windows11\.0-kb5129195-x64\.msu is installed; windows11\.0-kb5043080-x64\.msu stay in the folder'))
+$ps12 = Get-PackageSet -PatchRoot (Join-Path $base 'Win11Enterprise_24H2\PATCHES') -Enabled @{ LCU=$true }
+Check 'Get-PackageSet: LCU = the target, LcuCheckpoints = the checkpoint' ((@($ps12.LCU).Name -join ',') -eq 'windows11.0-kb5129195-x64.msu' -and (@($ps12.LcuCheckpoints).Name -join ',') -eq 'windows11.0-kb5043080-x64.msu')
+function FI($n) { [pscustomobject]@{ Name = $n; FullName = "C:\p\$n"; Extension = [IO.Path]::GetExtension($n); DirectoryName = 'C:\p' } }
+$r1 = Resolve-LcuTarget -Files @((FI 'windows10.0-kb5129238-x64.msu'))
+Check 'Resolve-LcuTarget: a single LCU (every Win10 / Server profile) is installed as before' ((@($r1.Install).Name -join ',') -eq 'windows10.0-kb5129238-x64.msu' -and @($r1.Checkpoints).Count -eq 0)
+$r2 = Resolve-LcuTarget -Files @((FI 'a.msu'), (FI 'b.cab'))
+Check 'Resolve-LcuTarget: no KB numbers to go by -> everything installed, as before' (@($r2.Install).Count -eq 2 -and @($r2.Checkpoints).Count -eq 0)
+$r3 = Resolve-LcuTarget -Files @((FI 'windows11.0-kb5129195-x64.msu'), (FI 'windows11.0-kb5043080-x64.msu'), (FI 'windows11.0-kb5060842-x64.msu'))
+Check 'Resolve-LcuTarget: with several checkpoints the highest KB is the target' ((@($r3.Install).Name -join ',') -eq 'windows11.0-kb5129195-x64.msu' -and @($r3.Checkpoints).Count -eq 2)
+
 Write-Host "`nRESULT: $pass passed, $fail failed"

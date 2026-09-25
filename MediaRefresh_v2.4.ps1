@@ -52,6 +52,10 @@
       * Changed: the "confirm download" dialog and "selected" log line show each pick's release date and catalog
                classification, and for the LCU whether it is the Patch Tuesday or an out-of-band release (the newest
                cumulative release is still the one picked).
+      * Fixed: when PATCHES\LCU holds a checkpoint as well as the LCU (Win11 24H2+), only the target LCU (highest KB)
+               is installed and the checkpoint stays in the same folder for DISM to apply where needed - Microsoft's
+               method. Before, every file was added, so the checkpoint was installed directly into WinRE, install.wim
+               and WinPE. A single LCU file is installed as before.
     Version 2.2.0 (draft - test against non-production images first).
       * Added: OS profiles are JSON files in a Profiles folder beside the script (created from the built-in profiles the first
                time the folder is empty). Edit a file and press "Reload profiles"; a bad file is reported and skipped.
@@ -822,7 +826,23 @@ function Get-PackageSet {
         $ext = if ($k -eq 'SetupDU') { @('.cab') } else { @('.cab', '.msu') }
         $set[$k] = @( if ($Enabled[$k]) { Get-PackageFiles -Path (Join-Path $PatchRoot $folders[$k]) -Extensions $ext -Order @($Order[$k]) } )
     }
+    $lcu = Resolve-LcuTarget -Files $set.LCU
+    $set.LCU = $lcu.Install; $set.LcuCheckpoints = $lcu.Checkpoints
     return $set
+}
+function Resolve-LcuTarget {
+    # Checkpoint cumulative updates (Win11 24H2+, Server 2025): Microsoft's method for offline media is to put the target
+    # LCU and every earlier checkpoint .msu in one folder and add ONLY the target; DISM finds and installs the checkpoints
+    # the image still needs (learn.microsoft.com "Checkpoint cumulative updates and the Microsoft Update Catalog").
+    # Adding a checkpoint directly is never needed and may fail on an image already past it. So when PATCHES\LCU holds
+    # more than one .msu, the one with the highest KB number is the target and the rest stay in the folder, uninstalled.
+    # One file (every Win10 / Server 2022 profile) or no KB numbers to go by: unchanged, everything is installed.
+    param([object[]]$Files)
+    $all = @($Files | Where-Object { $_ })
+    $msu = @($all | Where-Object { $_.Extension -ieq '.msu' -and (Get-KbFromName $_.Name) })
+    if ($all.Count -le 1 -or $msu.Count -eq 0) { return @{ Install = $all; Checkpoints = @() } }
+    $target = $msu | Sort-Object { [int64]((Get-KbFromName $_.Name) -replace '\D', '') } -Descending | Select-Object -First 1
+    return @{ Install = @($target); Checkpoints = @($all | Where-Object { $_.FullName -ne $target.FullName }) }
 }
 function Test-PackageSet {
     param([pscustomobject]$Definition, [hashtable]$Packages, [hashtable]$Enabled, [bool]$DoWinRe, [bool]$BuildMedia)
@@ -832,6 +852,14 @@ function Test-PackageSet {
         if (@($Packages[$k]).Count -gt 1) { Write-Log "$k order: $((@($Packages[$k]) | ForEach-Object { $_.Name }) -join ' -> ')" }
     }
     if ($Enabled.LCU -and @($Packages.LCU).Count -eq 0) { throw 'Latest Cumulative Update is selected but PATCHES\LCU is empty. Add the LCU or untick it.' }
+    $cps = @($Packages['LcuCheckpoints'] | Where-Object { $_ })
+    if ($Enabled.LCU -and $cps.Count -gt 0) {
+        $target = @($Packages.LCU)[0]
+        Write-Log "LCU: only $($target.Name) is installed; $(($cps | ForEach-Object { $_.Name }) -join ', ') stay in the folder for DISM to apply as checkpoint(s) where the image needs them. PATCHES\LCU must hold only this LCU and its checkpoints."
+        foreach ($cp in $cps) {
+            if ($cp.DirectoryName -ne $target.DirectoryName) { Write-Log "LCU checkpoint $($cp.Name) is not in the same folder as $($target.Name); DISM only looks beside the target. Move it next to the target." 'WARN' }
+        }
+    }
     if ($Enabled.SSU -and $Definition.SsuRequired -and @($Packages.SSU).Count -eq 0) { throw 'This OS needs its servicing stack update in PATCHES\SSU. Add it or untick Servicing Stack Update.' }
     if ($DoWinRe -and $Enabled.SafeOS -and @($Packages.SafeOS).Count -eq 0) { Write-Log 'WinRE servicing is on but PATCHES\SAFEOSDU is empty; WinRE will not get the Safe OS update.' 'WARN' }
     if ($BuildMedia -and $Enabled.SetupDU -and @($Packages.SetupDU).Count -eq 0) { Write-Log 'Refreshed media is requested but PATCHES\SETUPDU is empty; Setup files will not be updated.' 'WARN' }
