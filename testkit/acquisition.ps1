@@ -335,6 +335,14 @@ $resDry9 = Invoke-PatchAcquisition -Options ([pscustomobject]@{ OsName = 'TestOS
 $selLine = @($script:LogLines -match 'NetCU: selected') | Select-Object -First 1
 Check 'the dry-run "selected" log line names the KB once' ($selLine -and ([regex]::Matches($selLine, 'KB5126144')).Count -eq 1) "$selLine"
 Check 'the dry-run plan has one entry per class' (@($resDry9.Plan).Count -eq 1)
+Check 'the "selected" log line shows the release date and classification (OOB vs Patch Tuesday)' ($selLine -match '\[released 2026-09-08, Security Updates\]') "$selLine"
+Check 'the plan carries Date and Classification for the dialog' ($resDry9.Plan[0].Date -eq [datetime]'2026-09-08 21:25:13' -and $resDry9.Plan[0].Classification -eq 'Security Updates')
+Check 'Test-PatchTuesday: 2026-09-08 yes, 2026-09-14 and 2026-09-01 (first Tuesday) no' ((Test-PatchTuesday ([datetime]'2026-09-08')) -and -not (Test-PatchTuesday ([datetime]'2026-09-14')) -and -not (Test-PatchTuesday ([datetime]'2026-09-01')))
+# The real Win11 September out-of-band LCU is classed "Security Updates" - the date is what tells it apart
+Check 'Format-CatalogPick -Release: the real Win11 OOB LCU reads as out-of-band' ((Format-CatalogPick -Title 'X (KB5129195)' -Kb 'KB5129195' -Date ([datetime]'2026-09-14') -Classification 'Security Updates' -Release) -eq 'X (KB5129195) [released 2026-09-14, out-of-band, Security Updates]')
+Check 'Format-CatalogPick -Release: a second-Tuesday LCU reads as Patch Tuesday' ((Format-CatalogPick -Title 'X (KB5124008)' -Kb 'KB5124008' -Date ([datetime]'2026-09-08') -Classification 'Security Updates' -Release) -eq 'X (KB5124008) [released 2026-09-08, Patch Tuesday, Security Updates]')
+Check 'without -Release (non-LCU classes) no Patch Tuesday / out-of-band label' ((Format-CatalogPick -Title 'X (KB1)' -Kb 'KB1' -Date ([datetime]'2026-09-22') -Classification 'Critical Updates') -eq 'X (KB1) [released 2026-09-22, Critical Updates]')
+Check 'Format-CatalogPick: no date or classification adds no brackets' ((Format-CatalogPick -Title 'X (KB1)' -Kb 'KB1') -eq 'X (KB1)')
 $dialogLines = @($resDry9.Plan | ForEach-Object { "  $($_.Class): $(Format-CatalogPick -Title $_.Title -Kb $_.Kb)" })
 Check 'the confirm dialog line names the KB once' (([regex]::Matches(($dialogLines -join "`n"), 'KB5126144')).Count -eq 1) ($dialogLines -join ' | ')
 Reset-Test

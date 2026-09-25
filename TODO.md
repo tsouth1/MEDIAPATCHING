@@ -6,9 +6,9 @@ Last updated: 2026-09-24. The list now tracks one script only, v2.4. Older versi
 
 Where v2.4 stands:
 
-- **Mock test kit:** 7 suites, 268 checks, all passing on Windows PowerShell 5.1 and PowerShell 7.6 (2026-09-24).
+- **Mock test kit:** 7 suites, 275 checks, all passing on Windows PowerShell 5.1 and PowerShell 7.6 (2026-09-24).
 - **Real Microsoft Update Catalog:** every built-in rule for all five profiles picks the right entry from the live catalog (2026-09-24, step 2A), confirmed by GUI dry runs of all five OSes on the build machine the same evening. Real GUI downloads (LTSC 2019, LTSC 2021 KMS, Win11 24H2) the same evening found one pruning bug, fixed (step 2A).
-- **Real images and real DISM:** never run on v2.4. A v2.2 run of IoT LTSC 2021 finished with 0 verify issues on 2026-09-21, but v2.3 and v2.4 changed the servicing code (package handling, verification, .NET CU skipping), so that run does not count for v2.4.
+- **Real images and real DISM:** one complete real v2.4 servicing run so far: Win11 24H2 Enterprise, 2026-09-23 16:02-17:24 (`LOGS.zip`: `MediaRefresh_20260923_160211.log` + DISM logs) - WinRE, LCU KB5129195, cleanup, NetFX3, .NET CU KB5126052, export, verify and media folder; image 10.0.26100.9457, 0 verify issues, validation gate PASSED. The other OSes have not been serviced on v2.4 yet (a v2.2 run of IoT LTSC 2021 finished with 0 verify issues on 2026-09-21, but v2.3/v2.4 changed the servicing code).
 
 ## Index
 
@@ -102,7 +102,7 @@ Run with the regenerated profiles (`Profiles_corrected_2026-09-24.zip`, written 
 4. [ ] Server 2022 (English only, four indexes). Confirm WinRE is serviced once and the same winre.wim is reused for every index.
 5. [ ] LTSC 2019. The log should show the .NET CU part KB5126043 added and KB5126048 (the 4.8 part) skipped with a WARN as not applicable. That skip is inferred from the 0x800f081e behaviour and has not yet been seen in a real DISM log.
 6. [ ] IoT LTSC 2021 (repeat on v2.4).
-7. [ ] Win11 24H2. This also answers step 4 if the build host's DISM is older than build 26100.
+7. [x] Win11 24H2 (English only; WinRE, NetFX3, Verify and media on) - **done 2026-09-23 on v2.4, gate PASSED** (see "Where v2.4 stands"). The LCU folder held only KB5129195 then, so the checkpoint question (2A) did not come up; since the 2026-09-24 download it also holds KB5043080, so fix that item before the next Win11 run. Timing: WinRE about 3 min, LCU about 33 min, .NET CU about 21 min, whole run 82 min. DISM log errors were the usual noise (0x80070490 progress, TurboStack hydration, "failed to get hash info").
 
 - **WinRE with languages is the highest-risk path** and has never run in any log. Run it once with WinRE on and once off to isolate it, and record the WinRE size before and after.
 - On a real console, confirm that clicking in the console no longer pauses the run (Quick Edit fix) and that the window stays responsive during mount and patch.
@@ -133,6 +133,8 @@ These are the "Try it" checks from steps 1, 3 and 5. They were only ever confirm
 **Owner:** Claude + Terry. **Depends on:** 2 (the build-host answer and the Win11 24H2 run).
 
 The script only logs a warning when the host DISM is older than the image. Servicing Win11 24H2 (build 26100) from a Server 2022 host (DISM 10.0.20348) is a known source of odd failures. Options: detect and use the ADK's newer DISM for both the cmdlets (module path) and `dism.exe`, or require a newer build host. It is a small change once decided, but it touches every DISM call, so do it once, before the SCCM step adds more code.
+
+**First data point (2026-09-23):** the Server 2022 host's DISM 10.0.20348.2849 serviced the Win11 24H2 image (26100.9168 -> 26100.9457) with no failure - only the expected "host DISM is older" WARN, and the gate PASSED. One clean run does not prove it is safe (language packs and FODs were not part of it), so keep the decision open until a Win11 run with languages.
 
 <a id="s6"></a>
 ## 6. Upgrade-package media readiness and validation round 2
@@ -324,6 +326,7 @@ All three read the same instrumentation: a `Set-Phase` call at each stage bounda
 - **MSCatalogLTS 2.1.0.1 behaviour:** hides Dynamic Updates without `-IncludeDynamic`; reads one page of 25 rows without `-AllPages`; hides previews unless `-IncludePreview`; rewrites searches that start with an update-type phrase ("Dynamic Update for ...", "Cumulative Update for ...") or that name "Windows 10/11 <version>" without an update type, into its own query. The engine sends every search with a leading space to keep it as written.
 - **The catalog returns nothing for a search over 100 characters.** Profiles refuse one when they load.
 - **Title wording changes over time:** Win11 24H2 titles changed from "Windows 11 Version 24H2" to "Windows 11, version 24H2" around 2026-05, so the Win11 title filters accept both.
+- **Out-of-band LCUs (decision, Terry 2026-09-24): keep picking the newest cumulative release, out-of-band included.** September 2026 had an out-of-band LCU for every OS on 09-14 (1809 KB5129238, 21H2 KB5129236, Win11 KB5129195, Server 2022 KB5129237) after the Patch Tuesday ones on 09-08 (KB5122876, KB5122878, KB5124008, KB5122882). Out-of-band LCUs are cumulative (Win11 26100.9457 builds on Patch Tuesday's 26100.9445). The classification does not tell them apart - the Win11 one is classed "Security Updates" like Patch Tuesday - so the date does: the dry-run dialog and the "selected" log line now show the release date and classification, and for the LCU "Patch Tuesday" (second Tuesday) or "out-of-band".
 
 **Open design points**
 
@@ -339,6 +342,7 @@ All three read the same instrumentation: a `Set-Phase` call at each stage bounda
 - v2.2: step 1. First real run (IoT LTSC 2021, 2026-09-21): completed, 0 verify issues, slow (see 2B antivirus note).
 - v2.3: step 3.
 - v2.4: step 5, then fixed after Terry's real-catalog tests on 2026-09-23 (architecture from titles, multi-file entries, combined 1809 .NET CU, LCU title filters, not-applicable .NET parts skipped, empty-result crash, `productFilter` / `productExclude`).
+- 2026-09-24: out-of-band LCUs kept as the pick (decision); dialog and log show release date, classification and Patch Tuesday / out-of-band for the LCU. First real v2.4 servicing run recorded (Win11 24H2, 2026-09-23, gate PASSED). Test kit 275 checks.
 - 2026-09-24: real GUI downloads: the Win11 run deleted the LCU it had picked (module skips existing files without -Force; pruning kept only re-written files) - fixed with -Force plus a keep-picked-KBs safety net; confirm-dialog KBs no longer doubled. Test kit 268 checks.
 - 2026-09-24: step 2A done - every built-in catalog rule checked against the live catalog; Safe OS / Setup DU searches fixed (module hid Dynamic Updates and rewrote the search), 100-character search guard, 21H2 / Server 2022 / Win11 rules corrected, test kit passing on Windows PowerShell 5.1 (255 checks).
 - 2026-09-24: this list refocused on validating v2.4; v2_original, v2.1, v2.2, v2.3 and the saved .NET CU conversation moved to `archive\`; the test kit now defaults to `MediaRefresh_v2.4.ps1` and runs on Windows (CRLF fix in `profiles.ps1`).

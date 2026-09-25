@@ -49,6 +49,9 @@
                module skips a file that already exists unless -Force is passed, and the pruning kept only files new or
                re-written in the run. -Force is now passed, and pruning never removes a file whose KB was picked in the
                run unless the run also saved a file with that KB.
+      * Changed: the "confirm download" dialog and "selected" log line show each pick's release date and catalog
+               classification, and for the LCU whether it is the Patch Tuesday or an out-of-band release (the newest
+               cumulative release is still the one picked).
     Version 2.2.0 (draft - test against non-production images first).
       * Added: OS profiles are JSON files in a Profiles folder beside the script (created from the built-in profiles the first
                time the folder is empty). Edit a file and press "Reload profiles"; a bad file is reported and skipped.
@@ -455,12 +458,26 @@ function Get-KbFromName {
     $m = [regex]::Match([string]$Name, '(?i)KB[0-9]{6,8}')
     if ($m.Success) { return $m.Value.ToUpperInvariant() } else { return '' }
 }
+function Test-PatchTuesday {
+    # $true for the second Tuesday of a month (Microsoft's monthly release day).
+    param([datetime]$Date)
+    return ($Date.DayOfWeek -eq [DayOfWeek]::Tuesday -and $Date.Day -ge 8 -and $Date.Day -le 14)
+}
 function Format-CatalogPick {
     # "<title> (<KB>)" for the dry-run dialog and log - but catalog titles already end in "(KBnnnnnnn)", so the KB is only
     # added when the title does not contain it (Terry, 2026-09-24: every KB was listed twice).
-    param([string]$Title, [string]$Kb)
-    if ($Kb -and $Title -notmatch [regex]::Escape($Kb)) { return "$Title ($Kb)" }
-    return $Title
+    # The release date and classification follow in brackets, so an out-of-band release ("Updates", mid-month) is told
+    # apart from the Patch Tuesday one ("Security Updates") before anything is downloaded (Terry, 2026-09-24).
+    # -Release (LCU only) names Patch Tuesday vs out-of-band from the date: Microsoft classed the September 2026 Win11
+    # out-of-band LCU "Security Updates", so the classification alone does not tell them apart.
+    param([string]$Title, [string]$Kb, [datetime]$Date = [datetime]::MinValue, [string]$Classification = '', [switch]$Release)
+    $text = if ($Kb -and $Title -notmatch [regex]::Escape($Kb)) { "$Title ($Kb)" } else { $Title }
+    $extra = @()
+    if ($Date -ne [datetime]::MinValue) { $extra += 'released ' + $Date.ToString('yyyy-MM-dd') }
+    if ($Release -and $Date -ne [datetime]::MinValue) { $extra += $(if (Test-PatchTuesday $Date) { 'Patch Tuesday' } else { 'out-of-band' }) }
+    if ($Classification) { $extra += $Classification }
+    if ($extra.Count -gt 0) { $text += ' [' + ($extra -join ', ') + ']' }
+    return $text
 }
 function Get-EventCategory {
     # Maps an Add-Packages -Label to a Section A category, without touching every call site.
@@ -741,9 +758,10 @@ function Invoke-PatchAcquisition {
             $best = $candidates[0]
             $title = [string](Get-ProfileValue $best 'Title' '(untitled catalog result)')
             $kb = Get-KbFromName $title
-            $plan.Add([pscustomobject]@{ Class = $class; Title = $title; Kb = $kb })
+            $released = Get-CatalogDate $best; $classification = [string](Get-ProfileValue $best 'Classification' '')
+            $plan.Add([pscustomobject]@{ Class = $class; Title = $title; Kb = $kb; Date = $released; Classification = $classification })
             if ($kb) { $classPickedKbs.Add($kb) }
-            Write-Log "$class`: selected '$(Format-CatalogPick -Title $title -Kb $kb)'$(if ($searchTerms.Count -gt 1) { " [search: $term]" })"
+            Write-Log "$class`: selected '$(Format-CatalogPick -Title $title -Kb $kb -Date $released -Classification $classification -Release:($class -eq 'LCU'))'$(if ($searchTerms.Count -gt 1) { " [search: $term]" })"
             if ($dryRun) { continue }
 
             $folder = Join-Path $Paths.Patches $folders[$class]
@@ -1759,8 +1777,8 @@ function Complete-BackgroundRun {
             [System.Windows.MessageBox]::Show($msg, 'WimForge', 'OK', 'Information') | Out-Null
             $script:RunButton.IsEnabled = $true; $script:AcquirePatchesButton.IsEnabled = $true; $script:CancelButton.IsEnabled = $false
         } else {
-            $lines = @($plan | ForEach-Object { "  $($_.Class): $(Format-CatalogPick -Title $_.Title -Kb $_.Kb)" })
-            $msg = "This would download and keep the following (older files already in the same PATCHES class are removed; PATCHES\SSU is never touched):`n`n$($lines -join "`n")`n`nDownload these now?"
+            $lines = @($plan | ForEach-Object { "  $($_.Class): $(Format-CatalogPick -Title $_.Title -Kb $_.Kb -Date $_.Date -Classification $_.Classification -Release:($_.Class -eq 'LCU'))" })
+            $msg = "This would download and keep the following (older files already in the same PATCHES class are removed; PATCHES\SSU is never touched):`n`n$($lines -join "`n")`n`nThe newest cumulative release is picked, out-of-band included. The LCU line says whether its release date is Patch Tuesday (the second Tuesday) or out-of-band.`n`nDownload these now?"
             $answer = [System.Windows.MessageBox]::Show($msg, 'WimForge - confirm download', 'YesNo', 'Question')
             if ($answer -eq 'Yes' -and $script:PendingDownloadOptions) {
                 $go = $script:PendingDownloadOptions
