@@ -56,6 +56,10 @@
                is installed and the checkpoint stays in the same folder for DISM to apply where needed - Microsoft's
                method. Before, every file was added, so the checkpoint was installed directly into WinRE, install.wim
                and WinPE. A single LCU file is installed as before.
+      * Fixed (Terry's 2026-09-25 Win11 change log): Section A rows show the time each step succeeded, not the time
+               the log was written; the Setup DU expanded into the media is listed; Windows' housekeeping folders under
+               WindowsApps ("Deleted", "Merged") are no longer listed as staged appx packages. [string[]] parameters that
+               are counted default to an empty array (Windows PowerShell 5.1 throws on @($x).Count when one is unbound).
     Version 2.2.0 (draft - test against non-production images first).
       * Added: OS profiles are JSON files in a Profiles folder beside the script (created from the built-in profiles the first
                time the folder is empty). Edit a file and press "Reload profiles"; a bad file is reported and skipped.
@@ -430,7 +434,7 @@ function Remove-DirectoryContents {
 
 # ---------- DISM helpers ----------
 function Invoke-DismExe {
-    param([Parameter(Mandatory)][string[]]$Arguments, [Parameter(Mandatory)][string]$Description, [switch]$AllowPending)
+    param([Parameter(Mandatory)][string[]]$Arguments = @(), [Parameter(Mandatory)][string]$Description, [switch]$AllowPending)
     Write-Log $Description
     $all = @($Arguments)
     if ($script:DismLogArgs.ContainsKey('LogPath')) { $all += ('/LogPath:' + $script:DismLogArgs['LogPath']) }
@@ -959,7 +963,7 @@ function Get-FodSource {
 }
 function Resolve-LanguagePacks {
     # Finds every requested language pack cab BEFORE any image is mounted. Throws if any are missing.
-    param([string]$LpRoot, [string]$Pattern, [string[]]$Languages)
+    param([string]$LpRoot, [string]$Pattern, [string[]]$Languages = @())
     $byName = @{}
     foreach ($f in @(Get-ChildItem -LiteralPath $LpRoot -Filter '*Language-Pack_x64_*.cab' -File -Recurse -ErrorAction SilentlyContinue)) {
         $byName[$f.Name.ToLowerInvariant()] = $f.FullName
@@ -983,7 +987,7 @@ function Find-WinPeOcRoot {
 
 # ---------- languages ----------
 function Add-OfflineLanguages {
-    param([string]$MountPath, [hashtable]$LpFiles, [string[]]$FodSource, [string[]]$Languages, [string]$Target)
+    param([string]$MountPath, [hashtable]$LpFiles, [string[]]$FodSource = @(), [string[]]$Languages = @(), [string]$Target)
     $dl = $script:DismLogArgs
     if (@($Languages).Count -eq 0) { return }
     $fontsDone = @{}
@@ -1008,7 +1012,7 @@ function Add-OfflineLanguages {
     }
 }
 function Add-WinPeLanguages {
-    param([string]$MountPath, [string]$OcRoot, [string[]]$Languages, [string]$Target)
+    param([string]$MountPath, [string]$OcRoot, [string[]]$Languages = @(), [string]$Target)
     if (-not $OcRoot -or @($Languages).Count -eq 0) { return }
     foreach ($lang in @($Languages)) {
         $langRoot = Join-Path $OcRoot $lang
@@ -1067,7 +1071,7 @@ function Service-WinRe {
 }
 function Service-InstallIndex {
     param([string]$ImagePath, [int]$Index, [hashtable]$Paths, [hashtable]$Packages, [string]$OsDrive,
-          [hashtable]$LpFiles, [string[]]$FodSource, [string]$OcRoot, [string[]]$Languages, [bool]$DoWinRe, [bool]$DoNetFx3)
+          [hashtable]$LpFiles, [string[]]$FodSource = @(), [string]$OcRoot, [string[]]$Languages = @(), [bool]$DoWinRe, [bool]$DoNetFx3)
     Assert-NotCancelled
     $dl = $script:DismLogArgs
     $target = "install.wim index $Index"
@@ -1129,7 +1133,7 @@ function Export-OptimizedWim {
     }
 }
 function Service-BootWim {
-    param([string]$SourceBoot, [string]$Destination, [hashtable]$Paths, [hashtable]$Packages, [string]$OcRoot, [string[]]$Languages)
+    param([string]$SourceBoot, [string]$Destination, [hashtable]$Paths, [hashtable]$Packages, [string]$OcRoot, [string[]]$Languages = @())
     $dl = $script:DismLogArgs
     $working = Join-Path $Paths.Working 'boot.working.wim'
     $optimized = Join-Path $Paths.Temp 'boot.optimized.wim'
@@ -1167,7 +1171,7 @@ function Service-BootWim {
 function Test-OutputWim {
     # Read-only mounts each index of the final WIM, logs what is really in it, returns the number of issues, and (as a side
     # effect, in $script:VerifyInventory / $script:VerifyBuildAfter) collects the change log's Section B: the image's final state.
-    param([string]$WimPath, [hashtable]$Paths, [string[]]$Languages, [bool]$ExpectLcu)
+    param([string]$WimPath, [hashtable]$Paths, [string[]]$Languages = @(), [bool]$ExpectLcu)
     $dl = $script:DismLogArgs
     $issues = 0
     $script:VerifyInventory = [System.Collections.Generic.List[object]]::new()
@@ -1220,7 +1224,7 @@ function Test-OutputWim {
             # No per-user appx exists offline; the closest offline equivalent is what is actually staged under WindowsApps.
             $appxFolder = Join-Chain $Paths.MainMount @('Program Files', 'WindowsApps')
             if (Test-Path -LiteralPath $appxFolder) {
-                foreach ($d in @(Get-ChildItem -LiteralPath $appxFolder -Directory -ErrorAction SilentlyContinue)) {
+                foreach ($d in @(Get-ChildItem -LiteralPath $appxFolder -Directory -ErrorAction SilentlyContinue | Where-Object { Test-AppxPackageFolder $_.Name })) {
                     $script:VerifyInventory.Add([pscustomobject]@{ Index = $img.ImageIndex; Category = 'Appx package (staged)'; Item = $d.Name; Version = ''; Kb = ''; State = 'Present' })
                 }
             }
@@ -1240,12 +1244,18 @@ function Test-OutputWim {
 }
 
 # ---------- change log ----------
+function Test-AppxPackageFolder {
+    # Package folders under WindowsApps are named <Name>_<Version>_<Arch>_<ResourceId>_<PublisherId>; Windows' own
+    # housekeeping folders there ("Deleted", "Merged", "MovedPackages", ...) are not packages (Terry's 2026-09-25 change log).
+    param([string]$Name)
+    return ($Name -match '^[^_]+_\d+(\.\d+){1,3}_')
+}
 function Write-ChangeLog {
     # Writes the per-image change log (HTML + CSV) built from $script:ChangeEvents (Section A) and $script:VerifyInventory
     # (Section B, only populated when Test-OutputWim ran). Returns the file paths, or $null if it could not be written.
     param(
         [Parameter(Mandatory)][string]$OsName, [Parameter(Mandatory)][hashtable]$Paths, [Parameter(Mandatory)][string]$Stamp,
-        [string]$ToolVersion, [string]$BuildBefore, [string]$BuildAfter, [string[]]$Languages,
+        [string]$ToolVersion, [string]$BuildBefore, [string]$BuildAfter, [string[]]$Languages = @(),
         [bool]$ServiceAllIndexes, [pscustomobject]$Selected, [object[]]$IsoSources, [object[]]$Events, [object[]]$Inventory,
         [Nullable[int]]$VerifyIssues, [string]$Gate, [bool]$VerifyRan
     )
@@ -1262,8 +1272,8 @@ function Write-ChangeLog {
 
         # ---- one row list feeds both the CSV and the HTML tables, so they can never drift apart ----
         $rows = [System.Collections.Generic.List[object]]::new()
-        $addRow = { param($Section, $Item, $Ver, $State, $Source, $Index)
-            $rows.Add([pscustomobject]@{ Date = $runDate; Section = $Section; Item = $Item; VerKb = $Ver; State = $State; Source = $Source; Index = $Index })
+        $addRow = { param($Section, $Item, $Ver, $State, $Source, $Index, $When = '')
+            $rows.Add([pscustomobject]@{ Date = $(if ($When) { $When } else { $runDate }); Section = $Section; Item = $Item; VerKb = $Ver; State = $State; Source = $Source; Index = $Index })
         }
         & $addRow 'Header' 'Operating system' $OsName '' '' ''
         & $addRow 'Header' 'Build before patching' $(if ($BuildBefore) { $BuildBefore } else { 'n/a' }) '' '' ''
@@ -1273,10 +1283,12 @@ function Write-ChangeLog {
         & $addRow 'Header' 'Tool version' $ToolVersion '' '' ''
         & $addRow 'Header' 'Validation gate' $Gate '' '' ''
         & $addRow 'Header' 'Verification' $verifyText '' '' ''
-        foreach ($src in @($IsoSources)) { & $addRow 'Header' "Source ISO ($($src.Role))" $src.File '' '' '' }
+        foreach ($src in @($IsoSources | Where-Object { $_ })) { & $addRow 'Header' "Source ISO ($($src.Role))" $src.File '' '' '' }
         foreach ($e in @($Events | Sort-Object Time)) {
             $ver = if ($e.Kb) { $e.Kb } else { $e.Detail }
-            & $addRow 'A' $e.Item $ver 'Added' $e.Target ''
+            # Each Section A row carries the time its step succeeded, not the time the log was written (Terry, 2026-09-25).
+            $when = if ($e.Time -is [datetime]) { $e.Time.ToString('yyyy-MM-dd HH:mm:ss') } else { '' }
+            & $addRow 'A' $e.Item $ver 'Added' $e.Target '' $when
         }
         foreach ($r in @($Inventory | Sort-Object Index, Category, Item)) {
             $ver = if ($r.Kb) { $r.Kb } elseif ($r.Version) { $r.Version } else { '' }
@@ -1345,6 +1357,8 @@ function New-RefreshedMedia {
         Write-Log "Expanding Setup DU $($du.FullName)"
         & "$env:SystemRoot\System32\expand.exe" $du.FullName '-F:*' (Join-Path $media 'sources') | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "Setup DU expansion failed with exit code $LASTEXITCODE." }
+        $duName = Split-Path $du.FullName -Leaf
+        Add-ChangeEvent -Category 'SetupDU' -Item $duName -Target 'Media\sources' -Kb (Get-KbFromName $duName) -Detail 'Setup DU expanded into the refreshed media'
     }
     Write-Log "Refreshed media folder ready: $media"
     return $media

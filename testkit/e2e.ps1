@@ -223,4 +223,41 @@ Check 'Resolve-LcuTarget: no KB numbers to go by -> everything installed, as bef
 $r3 = Resolve-LcuTarget -Files @((FI 'windows11.0-kb5129195-x64.msu'), (FI 'windows11.0-kb5043080-x64.msu'), (FI 'windows11.0-kb5060842-x64.msu'))
 Check 'Resolve-LcuTarget: with several checkpoints the highest KB is the target' ((@($r3.Install).Name -join ',') -eq 'windows11.0-kb5129195-x64.msu' -and @($r3.Checkpoints).Count -eq 2)
 
+Write-Host "`n=== E13 change log fixes from Terry's 2026-09-25 Win11 run ==="
+# 1. Section A rows carry the time each step succeeded (the real log had every row at the write time, 11:04:10)
+$cl13 = Join-Path $base 'cl13'; New-Item -ItemType Directory -Force (Join-Path $cl13 'LOGS'), (Join-Path $cl13 'NEWWIM') | Out-Null
+$ev13 = @(
+    [pscustomobject]@{ Time = [datetime]'2026-09-25 09:51:32'; Category = 'LCU'; Item = 'windows11.0-kb5129195-x64.msu'; Kb = 'KB5129195'; Target = 'WinRE'; Detail = 'LCU' },
+    [pscustomobject]@{ Time = [datetime]'2026-09-25 10:28:49'; Category = 'LCU'; Item = 'windows11.0-kb5129195-x64.msu'; Kb = 'KB5129195'; Target = 'install.wim index 1'; Detail = 'LCU (final)' })
+$paths13 = @{ Logs = (Join-Path $cl13 'LOGS'); NewWim = (Join-Path $cl13 'NEWWIM') }
+$out13 = Write-ChangeLog -OsName 'Windows 11 Enterprise 24H2' -Paths $paths13 -Stamp '20260925_094434' -ToolVersion '2.4.0' -BuildBefore '10.0.26100.9168' -BuildAfter '10.0.26100.9457' -Events $ev13 -Inventory @() -Gate 'PASSED' -VerifyRan $false
+$csvPath13 = @(Get-ChildItem (Join-Path $cl13 'LOGS') -Filter '*.csv')[0].FullName
+$a13 = @(Import-Csv -LiteralPath $csvPath13 | Where-Object { $_.Section -eq 'A' })
+Check 'Section A rows carry each step''s own time, not the time the log was written' ((@($a13.Date) -join ',') -eq '2026-09-25 09:51:32,2026-09-25 10:28:49') (@($a13.Date) -join ',')
+$html13 = Get-Content -Raw -LiteralPath (@(Get-ChildItem (Join-Path $cl13 'LOGS') -Filter '*.html')[0].FullName)
+Check 'the HTML shows the same per-step times' ($html13 -match '2026-09-25 09:51:32' -and $html13 -match '2026-09-25 10:28:49')
+# 2. the Setup DU expanded into the media is recorded in Section A
+$script:ChangeEvents.Clear()
+$os13 = Join-Path $base 'os13'; New-File (Join-Path $os13 'setup.exe'); New-File (Join-Path $os13 'sources\setup.exe')
+$wim13 = Join-Path $base 'wim13\install.wim'; New-File $wim13
+$du13dir = Join-Path $base 'du13'; New-File (Join-Path $du13dir 'setuphost.exe') 'fake setup DU payload'
+$cab13 = Join-Path $du13dir 'windows11.0-kb5127216-x64.cab'
+$makecab = Join-Path $env:SystemRoot 'System32\makecab.exe'
+if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT -and (Test-Path $makecab)) {
+    # A real Setup DU cab holds many files (a one-file makecab cab would expand to its own name, not its content)
+    New-File (Join-Path $du13dir 'setupprep.exe') 'fake setup DU payload 2'
+    Set-Content (Join-Path $du13dir 'list.txt') "setuphost.exe`r`nsetupprep.exe"
+    Push-Location $du13dir
+    $mcArgs = @('/D', 'CompressionType=MSZIP', '/D', "DiskDirectoryTemplate=$du13dir", '/D', "CabinetNameTemplate=$(Split-Path $cab13 -Leaf)", '/F', (Join-Path $du13dir 'list.txt'))
+    & $makecab @mcArgs | Out-Null
+    Pop-Location
+    $media13 = New-RefreshedMedia -OsDrive $os13 -Paths @{ NewWim = (Join-Path $base 'newwim13') } -InstallWim $wim13 -BootWim '' -SetupDu @((Get-Item $cab13))
+    $du13 = @($script:ChangeEvents | Where-Object { $_.Category -eq 'SetupDU' })
+    Check 'the Setup DU expanded into the media is recorded as a change event (KB5127216, Media\sources)' ($du13.Count -eq 1 -and $du13[0].Kb -eq 'KB5127216' -and $du13[0].Target -eq 'Media\sources' -and (Test-Path (Join-Path $media13 'sources\setuphost.exe')))
+} else { Write-Host 'SKIP  Setup DU change event (needs Windows makecab.exe/expand.exe)' }
+# 3. housekeeping folders under WindowsApps are not listed as staged appx packages
+$names13 = @('Clipchamp.Clipchamp_4.4.10720.0_x64__yxz26nhyzhsrt', 'Clipchamp.Clipchamp_4.4.10720.0_neutral_split.scale-100_yxz26nhyzhsrt', 'Microsoft.ApplicationCompatibilityEnhancements_1.2511.9.0_neutral_~_8wekyb3d8bbwe', 'Deleted', 'Merged', 'MovedPackages', 'DeletedAllUserPackages', 'Mutable')
+$kept13 = @($names13 | Where-Object { Test-AppxPackageFolder $_ })
+Check 'Test-AppxPackageFolder keeps the real package folders and drops Deleted / Merged / other housekeeping folders' ($kept13.Count -eq 3 -and $kept13 -notcontains 'Deleted' -and $kept13 -notcontains 'Merged') ($kept13 -join ',')
+
 Write-Host "`nRESULT: $pass passed, $fail failed"
