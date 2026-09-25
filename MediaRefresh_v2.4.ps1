@@ -45,6 +45,10 @@
                Win11 24H2 gained a .NET CU rule.
       * Fixed: the "confirm download" dialog and the "selected" log line listed every KB twice (the catalog title
                already ends in it). Display only - each pick was always downloaded once.
+      * Fixed: a real download could delete the patch it had just picked (Terry's Win11 24H2 run removed the LCU): the
+               module skips a file that already exists unless -Force is passed, and the pruning kept only files new or
+               re-written in the run. -Force is now passed, and pruning never removes a file whose KB was picked in the
+               run unless the run also saved a file with that KB.
     Version 2.2.0 (draft - test against non-production images first).
       * Added: OS profiles are JSON files in a Profiles folder beside the script (created from the built-in profiles the first
                time the folder is empty). Edit a file and press "Reload profiles"; a bad file is reported and skipped.
@@ -634,6 +638,10 @@ function Save-CatalogCandidate {
     if ($cmd.Parameters.ContainsKey('DownloadAll')) { $params['DownloadAll'] = $true }
     if ($cmd.Parameters.ContainsKey('AcceptMultiFileUpdates')) { $params['AcceptMultiFileUpdates'] = $true }
     if ($cmd.Parameters.ContainsKey('Confirm')) { $params['Confirm'] = $false }
+    # MSCatalogLTS 2.1.0.1 skips a file that already exists unless -Force is passed. A skipped file is neither new nor
+    # re-written, so it would not be recognised as this run's download and the pruning below would delete it (Terry's
+    # Win11 24H2 run 2026-09-24 deleted the LCU it had just picked). Re-downloading is the price of always knowing.
+    if ($cmd.Parameters.ContainsKey('Force')) { $params['Force'] = $true }
     Save-MSCatalogUpdate @params -ErrorAction Stop | Out-Null
     $after = @(Get-ChildItem -LiteralPath $Destination -File -ErrorAction SilentlyContinue)
     # New or re-written (same name, newer timestamp) files are this download's output.
@@ -648,17 +656,25 @@ function Update-PatchCache {
     # with more than one search term - e.g. .NET CU on Windows 10 1809, which needs both its "3.5 and 4.7.2" and
     # "3.5 and 4.8" downloads kept side by side, not pruned down to just the newest of the two. Never called for the
     # SSU folder.
-    param([Parameter(Mandatory)][string]$Folder, [string]$NewestFile = '', [string[]]$KeepFiles = @(), [string[]]$KeepChain = @())
+    # Safety net: $KeepKbs are the KBs picked in this run. A file with one of those KBs is never removed unless this run
+    # also saved a file with the same KB (then the older copy, e.g. the long "_<hash>" name, is a true duplicate).
+    param([Parameter(Mandatory)][string]$Folder, [string]$NewestFile = '', [string[]]$KeepFiles = @(), [string[]]$KeepChain = @(), [string[]]$KeepKbs = @())
     if (-not (Test-Path -LiteralPath $Folder)) { return @() }
     $keepNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
     if ($NewestFile) { [void]$keepNames.Add([System.IO.Path]::GetFileName($NewestFile)) }
     foreach ($kf in $KeepFiles) { if ($kf) { [void]$keepNames.Add([System.IO.Path]::GetFileName($kf)) } }
+    $savedKbs = @($keepNames | ForEach-Object { Get-KbFromName $_ } | Where-Object { $_ })
+    $pickedKbs = @($KeepKbs | Where-Object { $_ } | ForEach-Object { ([string]$_).ToUpperInvariant() })
     $removed = @()
     $exts = @('.cab', '.msu')
     foreach ($f in @(Get-ChildItem -LiteralPath $Folder -File -ErrorAction SilentlyContinue | Where-Object { $exts -contains $_.Extension.ToLowerInvariant() })) {
         if ($keepNames.Contains($f.Name)) { continue }
         $kb = Get-KbFromName $f.Name
         if ($kb -and ($KeepChain -contains $kb)) { continue }
+        if ($kb -and ($pickedKbs -contains $kb) -and ($savedKbs -notcontains $kb)) {
+            Write-Log "Kept $($f.Name) in $Folder - it is $kb, picked in this run, although this run did not re-write it." 'WARN'
+            continue
+        }
         try { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop; $removed += $f.Name; Write-Log "Removed superseded file $($f.Name) from $Folder" }
         catch { Write-Log "Could not remove superseded file $($f.Name): $($_.Exception.Message)" 'WARN' }
     }
@@ -712,6 +728,7 @@ function Invoke-PatchAcquisition {
         # both its "3.5 and 4.7.2" and "3.5 and 4.8" updates) searches and downloads each term independently, and all
         # of this run's downloads for the class are kept together when pruning - not just the single newest.
         $classFilesKept = [System.Collections.Generic.List[string]]::new()
+        $classPickedKbs = [System.Collections.Generic.List[string]]::new()
         foreach ($term in $searchTerms) {
             Assert-NotCancelled
             $ruleObj = [pscustomobject]@{ search = $term; architecture = $ruleArch; excludePreview = $ruleExcludePreview; buildFilter = $ruleBuildFilter; productFilter = $ruleProductFilter; productExclude = $ruleProductExclude }
@@ -725,6 +742,7 @@ function Invoke-PatchAcquisition {
             $title = [string](Get-ProfileValue $best 'Title' '(untitled catalog result)')
             $kb = Get-KbFromName $title
             $plan.Add([pscustomobject]@{ Class = $class; Title = $title; Kb = $kb })
+            if ($kb) { $classPickedKbs.Add($kb) }
             Write-Log "$class`: selected '$(Format-CatalogPick -Title $title -Kb $kb)'$(if ($searchTerms.Count -gt 1) { " [search: $term]" })"
             if ($dryRun) { continue }
 
@@ -750,7 +768,7 @@ function Invoke-PatchAcquisition {
         }
         if (-not $dryRun -and $classFilesKept.Count -gt 0) {
             $folder = Join-Path $Paths.Patches $folders[$class]
-            $removedNow = Update-PatchCache -Folder $folder -KeepFiles @($classFilesKept) -KeepChain $chainKbs
+            $removedNow = Update-PatchCache -Folder $folder -KeepFiles @($classFilesKept) -KeepChain $chainKbs -KeepKbs @($classPickedKbs)
             foreach ($r in $removedNow) { $removed.Add([pscustomobject]@{ Class = $class; File = $r }) }
         }
     }

@@ -19,11 +19,16 @@ function Get-MSCatalogUpdate { [CmdletBinding()] param([string]$Search) $Search 
 $script:CatalogFileNames = @{}
 # -DownloadAll is a real parameter of the installed MSCatalogLTS (confirmed on Terry's machine, 2026-09-23). A title
 # mapped to an array of names mimics a multi-file catalog entry (the combined .NET CU downloads two .msu files).
-function Save-MSCatalogUpdate { [CmdletBinding()] param($Update, [string]$Destination, [switch]$Confirm, [switch]$DownloadAll)
-    Note "CatalogSave $($Update.Title) -> $Destination$(if ($DownloadAll) { ' [DownloadAll]' })"
+# Like the real 2.1.0.1 (read from its source, 2026-09-24), an existing file is skipped unless -Force is passed.
+function Save-MSCatalogUpdate { [CmdletBinding()] param($Update, [string]$Destination, [switch]$Confirm, [switch]$DownloadAll, [switch]$Force)
+    Note "CatalogSave $($Update.Title) -> $Destination$(if ($DownloadAll) { ' [DownloadAll]' })$(if ($Force) { ' [Force]' })"
     New-Item -ItemType Directory -Force $Destination | Out-Null
     $names = @($script:CatalogFileNames[$Update.Title]); if (-not $names[0]) { $names = @('download.msu') }
-    foreach ($name in $names) { Set-Content (Join-Path $Destination $name) 'downloaded' }
+    foreach ($name in $names) {
+        $out = Join-Path $Destination $name
+        if ((Test-Path $out) -and -not $Force) { Note "CatalogSkip $name"; continue }
+        Set-Content $out 'downloaded'; (Get-Item $out).LastWriteTimeUtc = [datetime]::UtcNow.AddSeconds(5)
+    }
 }
 $script:IsoMap = @{}
 function Mount-IsoFile { param([string]$ImagePath) $script:MountedIsoPaths.Add($ImagePath); return $script:IsoMap[(Split-Path $ImagePath -Leaf)] }
@@ -335,5 +340,42 @@ Check 'the confirm dialog line names the KB once' (([regex]::Matches(($dialogLin
 Reset-Test
 $null = Invoke-PatchAcquisition -Options ([pscustomobject]@{ OsName = 'TestOS3'; Root = $base; Mode = 'Download'; DryRun = $false; LCU = $false; NetCU = $true; SafeOS = $false; SetupDU = $false }) -Definition $realDef -Paths $paths3
 Check 'the confirmed real run downloads the picked entry exactly once' (@($script:Calls -match '^CatalogSave').Count -eq 1)
+
+Write-Host "`n=== A10 a pick whose file is already in PATCHES is never pruned (Terry's Win11 24H2 run, 2026-09-24) ==="
+# The real run: PATCHES\LCU already held windows11.0-kb5129195-x64.msu; the module skipped it (no -Force), only the
+# checkpoint was new, and the pruning deleted the LCU it had just picked.
+$tW11 = '2026-09 Cumulative Update for Windows 11, version 24H2 for x64-based Systems (KB5129195) (26100.9457)'
+$w11Def = ConvertTo-OsProfile -Data ([ordered]@{ name = 'TestOS4'; folder = 'TestOS4'; editionRegex = 'a'; preferredIndex = 1
+    catalogSearch = [ordered]@{ LCU = [ordered]@{ search = 'search-w11-lcu'; architecture = 'x64'; excludePreview = $true; buildFilter = '' } } })
+$paths4 = Initialize-Repository -Root $base -Definition $w11Def
+Fake-Iso 'TestOS4' 'osiso4' @('sources/install.wim')
+$script:CatalogResults['search-w11-lcu'] = @((Real-Result $tW11))
+$script:CatalogFileNames[$tW11] = @('windows11.0-kb5129195-x64.msu', 'windows11.0-kb5043080-x64.msu')
+$lcu4 = Join-Path $paths4.Patches 'LCU'
+function Reset-W11Lcu { Get-ChildItem $lcu4 -File -ErrorAction SilentlyContinue | Remove-Item -Force
+    New-File (Join-Path $lcu4 'windows11.0-kb5129195-x64.msu'); New-File (Join-Path $lcu4 'windows11.0-kb5121003-x64.msu')
+    Get-ChildItem $lcu4 -File | ForEach-Object { $_.LastWriteTimeUtc = [datetime]::UtcNow.AddDays(-1) } }
+$w11Opts = [pscustomobject]@{ OsName = 'TestOS4'; Root = $base; Mode = 'Download'; DryRun = $false; LCU = $true; NetCU = $false; SafeOS = $false; SetupDU = $false }
+Reset-W11Lcu; Reset-Test
+$null = Invoke-PatchAcquisition -Options $w11Opts -Definition $w11Def -Paths $paths4
+$lcuNow = @(Get-ChildItem $lcu4 -File | Select-Object -ExpandProperty Name | Sort-Object)
+Check '-Force is passed when the module declares it' ([bool]($script:Calls -match '^CatalogSave.*\[Force\]'))
+Check 'with -Force: the LCU and its checkpoint are kept, last month''s LCU removed' (($lcuNow -join ',') -eq 'windows11.0-kb5043080-x64.msu,windows11.0-kb5129195-x64.msu') ($lcuNow -join ',')
+# Safety net: a module without -Force skips the existing LCU file, as the real run did
+$forceMock = ${function:Save-MSCatalogUpdate}
+function Save-MSCatalogUpdate { [CmdletBinding()] param($Update, [string]$Destination, [switch]$DownloadAll)
+    foreach ($name in @($script:CatalogFileNames[$Update.Title])) { $out = Join-Path $Destination $name
+        if (Test-Path $out) { Note "CatalogSkip $name"; continue }; Set-Content $out 'downloaded' } }
+Reset-W11Lcu; Reset-Test; $script:LogLines.Clear()
+$null = Invoke-PatchAcquisition -Options $w11Opts -Definition $w11Def -Paths $paths4
+$lcuNow = @(Get-ChildItem $lcu4 -File | Select-Object -ExpandProperty Name | Sort-Object)
+Check 'without -Force (module skips the existing file): the picked LCU is still kept' (($script:Calls -match '^CatalogSkip windows11.0-kb5129195') -and ($lcuNow -contains 'windows11.0-kb5129195-x64.msu')) ($lcuNow -join ',')
+Check '... the checkpoint is kept and last month''s LCU removed' (($lcuNow -contains 'windows11.0-kb5043080-x64.msu') -and ($lcuNow -notcontains 'windows11.0-kb5121003-x64.msu'))
+Check '... and the kept file is reported with a WARN' ([bool]($script:LogLines -match 'WARN.*Kept windows11.0-kb5129195-x64.msu'))
+Set-Item function:Save-MSCatalogUpdate $forceMock
+# A same-KB older copy (the long "_<hash>" name) next to this run's new file is a true duplicate and still goes
+$dupDir = Join-Path $base 'dupcache'; New-File (Join-Path $dupDir 'windows11.0-kb5126052-x64-ndp481_082cfd58.msu'); New-File (Join-Path $dupDir 'windows11.0-kb5126052-x64-ndp481.msu')
+$null = Update-PatchCache -Folder $dupDir -KeepFiles @((Join-Path $dupDir 'windows11.0-kb5126052-x64-ndp481.msu')) -KeepKbs @('KB5126052')
+Check 'a same-KB older copy is removed when this run saved that KB' ((@(Get-ChildItem $dupDir -File | Select-Object -ExpandProperty Name) -join ',') -eq 'windows11.0-kb5126052-x64-ndp481.msu')
 
 Write-Host "`nRESULT: $pass passed, $fail failed"
