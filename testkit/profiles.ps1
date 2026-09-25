@@ -28,7 +28,7 @@ foreach ($k in $b.Keys) { foreach ($prop in 'Folder','EditionRegex','PreferredIn
   if ((@($b[$k].AltFolders) -join ',') -ne (@($t[$k].AltFolders) -join ',')) { $same=$false } }
 Check 'file round trip equals the built-ins' $same
 $json = Get-Content (Join-Path $dir 'Win10_Enterprise_LTSC_2021_KMS.json') -Raw
-Check 'JSON is readable, camelCase, arrays stay arrays' ($json -match '"editionRegex"' -and $json -match '"altFolders": \[\]' -and $json -match '"defaultLanguages": \[')
+Check 'JSON is readable, camelCase, arrays stay arrays' ($json -match '"editionRegex"' -and $json -match '"altFolders":\s*\[\s*\]' -and $json -match '"defaultLanguages":\s*\[')
 Check 'no BOM in the files' ([System.IO.File]::ReadAllBytes((Join-Path $dir 'Win11_Enterprise_24H2.json'))[0] -eq 0x7B)
 
 Write-Host "`n=== P3 a new OS by file only; deleted built-in stays deleted; edits apply ==="
@@ -128,8 +128,8 @@ Check 'keep 0 = keep every archive' (@(Get-ChildItem (Join-Path $k0.NewWim 'Arch
 
 Write-Host "`n=== P9 free-space check ==="
 # restore the real function (mocks.ps1 replaced it) so we can also test the raw reader, then mock per case
-$real = (Get-Content -Raw $(if ($env:MR_SCRIPT) { $env:MR_SCRIPT } else { '/mnt/user-data/outputs/MediaRefresh_v2.2.ps1' }))
-$gm = [regex]::Match($real, '(?s)function Get-FreeSpaceGB \{.*?\n\}\n').Value
+$real = (Get-Content -Raw $(if ($env:MR_SCRIPT) { $env:MR_SCRIPT } else { (Join-Path $PSScriptRoot '../MediaRefresh_v2.4.ps1') }))
+$gm = [regex]::Match($real, '(?s)function Get-FreeSpaceGB \{.*?\r?\n\}\r?\n').Value
 Invoke-Expression $gm
 $fs = Get-FreeSpaceGB -Path $tmp
 Check 'real reader returns a positive number' ($fs -gt 0) "$fs"

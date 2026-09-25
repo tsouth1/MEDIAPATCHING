@@ -1,6 +1,6 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-$src = [System.IO.File]::ReadAllText($(if ($env:MR_SCRIPT) { $env:MR_SCRIPT } else { '/mnt/user-data/outputs/MediaRefresh_v2.2.ps1' }))
+$src = [System.IO.File]::ReadAllText($(if ($env:MR_SCRIPT) { $env:MR_SCRIPT } else { (Join-Path $PSScriptRoot '../MediaRefresh_v2.4.ps1') }))
 $engine = [regex]::Match($src, '(?s)#region ENGINE(.*?)#endregion ENGINE').Groups[1].Value
 $runner = [regex]::Match($src, "(?s)\`$script:RunnerScript = @'\r?\n(.*?)\r?\n'@").Groups[1].Value
 $pass=0;$fail=0

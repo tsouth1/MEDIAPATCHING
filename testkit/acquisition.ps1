@@ -14,7 +14,8 @@ function Get-PackageProvider { [CmdletBinding()] param($Name, [switch]$ListAvail
 function Install-PackageProvider { [CmdletBinding()] param($Name, [switch]$Force, [string]$Scope) Note "InstallProvider $Name" }
 function Install-Module { [CmdletBinding()] param($Name, [string]$Scope, [switch]$Force, [switch]$AllowClobber) Note "InstallModule $Name"; $script:CatalogModuleInstalled = $true }
 $script:CatalogResults = @{}
-function Get-MSCatalogUpdate { [CmdletBinding()] param([string]$Search) Note "CatalogSearch $Search"; return @($script:CatalogResults[$Search]) }
+# The engine sends the search with a leading space (see Invoke-CatalogUpdateSearch); the catalog trims it, so the mock does too.
+function Get-MSCatalogUpdate { [CmdletBinding()] param([string]$Search) $Search = $Search.Trim(); Note "CatalogSearch $Search"; return @($script:CatalogResults[$Search]) }
 $script:CatalogFileNames = @{}
 # -DownloadAll is a real parameter of the installed MSCatalogLTS (confirmed on Terry's machine, 2026-09-23). A title
 # mapped to an array of names mimics a multi-file catalog entry (the combined .NET CU downloads two .msu files).
@@ -75,6 +76,24 @@ Reset-Test
 $probeRule = [pscustomobject]@{ search = 'probe-search'; architecture = 'x64'; excludePreview = $true; buildFilter = '' }
 $null = Invoke-CatalogUpdateSearch -Search 'probe-search' -Rule $probeRule
 Check 'search still runs against a mock lacking Architecture/ExcludePreview params, without erroring' ((@($script:Calls -match '^CatalogSearch probe-search')).Count -eq 1)
+
+Write-Host "`n=== A2c Invoke-CatalogUpdateSearch against the real MSCatalogLTS 2.1.0.1 parameter surface ==="
+# The installed 2.1.0.1 (Terry's PC, 2026-09-24) hides Dynamic Updates without -IncludeDynamic, reads one page without
+# -AllPages, has -IncludePreview instead of -ExcludePreview, and rewrites searches starting "Dynamic Update for ...".
+$simpleCatalogMock = ${function:Get-MSCatalogUpdate}
+function Get-MSCatalogUpdate { [CmdletBinding()] param([string]$Search, [string]$Architecture, [switch]$IncludeDynamic, [switch]$AllPages, [switch]$IncludePreview)
+    $script:LastCatalogCall = [pscustomobject]@{ Search = $Search; Params = @($PSBoundParameters.Keys) }; return @() }
+$duRule = [pscustomobject]@{ search = 'Dynamic Update for Windows 10 Version 1809 for x64-based Systems'; architecture = 'x64'; excludePreview = $true; buildFilter = '' }
+$null = Invoke-CatalogUpdateSearch -Search $duRule.search -Rule $duRule
+Check '-IncludeDynamic is passed (Safe OS / Setup DU titles contain "Dynamic")' ($script:LastCatalogCall.Params -contains 'IncludeDynamic')
+Check '-AllPages is passed (a Setup DU can be past the first 25 rows)' ($script:LastCatalogCall.Params -contains 'AllPages')
+Check '-IncludePreview is not passed when excludePreview is true' ($script:LastCatalogCall.Params -notcontains 'IncludePreview')
+Check '-Architecture is passed' ($script:LastCatalogCall.Params -contains 'Architecture')
+Check 'the search cannot match the module''s update-type rewrite (^Dynamic Update for ...)' ($script:LastCatalogCall.Search -notmatch '^((?:\d{4}-\d{2}(?:-\d{2})?\s+)?)(Servicing Stack|Dynamic Update|Security Update|Cumulative Update|Feature Update)\s+for\s+(.+)$' -and $script:LastCatalogCall.Search.Trim() -eq $duRule.search)
+$pvRule = [pscustomobject]@{ search = 'x'; architecture = 'x64'; excludePreview = $false; buildFilter = '' }
+$null = Invoke-CatalogUpdateSearch -Search 'x' -Rule $pvRule
+Check '-IncludePreview is passed when excludePreview is false' ($script:LastCatalogCall.Params -contains 'IncludePreview')
+Set-Item function:Get-MSCatalogUpdate $simpleCatalogMock
 
 Write-Host "`n=== A3 Update-PatchCache: keeps newest + chain, removes the rest, tolerates a missing folder ==="
 $cacheDir = Join-Path $base 'cache'; New-File (Join-Path $cacheDir 'old-kb1-x64.msu'); New-File (Join-Path $cacheDir 'old2.cab'); New-File (Join-Path $cacheDir 'chained-kb1234567-x64.msu'); New-File (Join-Path $cacheDir 'newest-kb2345678-x64.msu')
@@ -226,6 +245,45 @@ Check 'built-in 1809 SetupDU rule: accepts the Setup DU, rejects the Safe OS DU 
 Check 'Products given as a list is matched too' (Test-CatalogCandidate -Result ([pscustomobject]@{ Title = $tSafe; Products = @('Windows 10 and later Dynamic Update', 'Windows Safe OS Dynamic Update') }) -Rule $ruleSafe)
 $threw = $false; try { ConvertTo-OsProfile -Data ([ordered]@{ name = 'X'; folder = 'X'; editionRegex = 'a'; preferredIndex = 1; catalogSearch = [ordered]@{ SafeOS = [ordered]@{ search = 'a'; productFilter = '([bad' } } }) } catch { $threw = $true; $mRx = $_.Exception.Message }
 Check 'an invalid productFilter regex is refused when the profile loads' ($threw -and $mRx -like "*productFilter' is not a valid regular expression*")
+$threw = $false; try { ConvertTo-OsProfile -Data ([ordered]@{ name = 'X'; folder = 'X'; editionRegex = 'a'; preferredIndex = 1; catalogSearch = [ordered]@{ NetCU = [ordered]@{ search = ('x' * 101) } } }) } catch { $threw = $true; $mLen = $_.Exception.Message }
+Check 'a search over 100 characters is refused when the profile loads (the catalog returns nothing for it)' ($threw -and $mLen -like '*over 100 characters*')
+
+Write-Host "`n=== A8 built-in rules against real catalog results (Claude, live catalog, 2026-09-24) ==="
+$builtIn = @(Get-BuiltInProfileData | ForEach-Object { ConvertTo-OsProfile -Data $_ })
+$longest = ($builtIn | ForEach-Object { foreach ($k in @($_.CatalogSearch.Keys)) { foreach ($s in $_.CatalogSearch[$k].searches) { $s.Length } } } | Measure-Object -Maximum).Maximum
+Check 'every built-in search fits the catalog''s 100-character limit' ($longest -le 100) "$longest"
+function Rule-Of($folder, $class) { $d = $builtIn | Where-Object { $_.Folder -eq $folder } | Select-Object -First 1; $r = $d.CatalogSearch[$class]; [pscustomobject]@{ architecture = $r.architecture; excludePreview = $r.excludePreview; buildFilter = $r.buildFilter; productFilter = $r.productFilter; productExclude = $r.productExclude } }
+function RR($title, $products) { $r = Real-Result $title; $r.Products = $products; $r }
+$pSafe = 'Windows 10 and later Dynamic Update, Windows Safe OS Dynamic Update'; $pDu = 'Windows 10 and later Dynamic Update'
+# Picks: accepted = the entry the rule must choose; rejected = real neighbours from the same search
+$cases = @(
+    @{ f = 'Win10_IoT_Enterprise_LTSC_2021'; c = 'LCU'; ok = (RR '2026-09 Cumulative Update for Windows 10 Version 21H2 for x64-based Systems (KB5129236)' 'Windows 10 LTSB')
+       no = @((RR '2026-09 Dynamic Cumulative Update for Windows 10 Version 21H2 for x64-based Systems (KB5122878)' 'Windows 10 and later GDR-DU'), (RR '2026-09 Cumulative Update for Windows 10 Version 21H2 for ARM64-based Systems (KB5129236)' 'Windows 10 LTSB')) }
+    @{ f = 'Win10_IoT_Enterprise_LTSC_2021'; c = 'NetCU'; ok = (RR '2026-09 Cumulative Update for .NET Framework 3.5, 4.8 and 4.8.1 for Windows 10 Version 21H2 for x64 (KB5126145)' 'Windows 10 LTSB')
+       no = @((RR '2026-09 Cumulative Update for .NET Framework 3.5, 4.8 and 4.8.1 for Windows 10 Version 21H2 (KB5126145)' 'Windows 10 LTSB'), (RR '2026-09 Cumulative Update for .NET Framework 3.5 and 4.8 for Windows 10 Version 21H2 for x64 (KB5126046)' 'Windows 10 LTSB')) }
+    @{ f = 'Win10_IoT_Enterprise_LTSC_2021'; c = 'SafeOS'; ok = (RR '2026-09 Dynamic Update for Windows 10 Version 21H2 for x64-based Systems (KB5122887)' $pSafe)
+       no = @((RR '2026-09 Dynamic Update for Windows 10 Version 21H2 for x64-based Systems (KB5126029)' $pDu), (RR '2026-09 Dynamic Cumulative Update for Windows 10 Version 21H2 for x64-based Systems (KB5122878)' 'Windows 10 and later GDR-DU')) }
+    @{ f = 'Win10_IoT_Enterprise_LTSC_2021'; c = 'SetupDU'; ok = (RR '2026-09 Dynamic Update for Windows 10 Version 21H2 for x64-based Systems (KB5126029)' $pDu)
+       no = @((RR '2026-09 Dynamic Update for Windows 10 Version 21H2 for x64-based Systems (KB5122887)' $pSafe)) }
+    @{ f = 'Windows_Server_2022'; c = 'NetCU'; ok = (RR '2026-09 Cumulative Update for .NET Framework 3.5, 4.8 and 4.8.1 for Microsoft server operating system version 21H2 for x64 (KB5126149)' 'Microsoft Server operating system-21H2')
+       no = @((RR '2026-09 Cumulative Update for .NET Framework 3.5 and 4.8.1 for Microsoft server operating system version 21H2 for x64 (KB5126422)' 'Microsoft Server operating system-21H2')) }
+    @{ f = 'Windows_Server_2022'; c = 'SafeOS'; ok = (RR '2026-09 Dynamic Update for Microsoft server operating system version 21H2 for x64-based Systems (KB5122889)' $pSafe)
+       no = @((RR '2026-09 Dynamic Update for Microsoft server operating system version 21H2 for x64-based Systems (KB5126031)' $pDu)) }
+    @{ f = 'Windows_Server_2022'; c = 'SetupDU'; ok = (RR '2026-09 Dynamic Update for Microsoft server operating system version 21H2 for x64-based Systems (KB5126031)' $pDu)
+       no = @((RR '2026-09 Dynamic Update for Microsoft server operating system version 21H2 for x64-based Systems (KB5122889)' $pSafe)) }
+    @{ f = 'Win11_Enterprise_24H2'; c = 'NetCU'; ok = (RR '2026-09 Cumulative Update for .NET Framework 3.5 and 4.8.1 for Windows 11, version 24H2 for x64 (KB5126052)' 'Windows 11')
+       no = @((RR '2026-08 Cumulative Update Preview for .NET Framework 3.5 and 4.8.1 for Windows 11, version 24H2 for x64 (KB5122385)' 'Windows 11')) }
+    @{ f = 'Win11_Enterprise_24H2'; c = 'SafeOS'; ok = (RR '2026-09 Safe OS Dynamic Update for Windows 11, version 24H2 for x64-based Systems (KB5125758)' 'Windows Safe OS Dynamic Update, Windows 10 and later Dynamic Update')
+       no = @((RR '2026-09 Safe OS Dynamic Update for Windows 11, version 24H2 for arm64-based Systems (KB5125758)' 'Windows Safe OS Dynamic Update, Windows 10 and later Dynamic Update'), (RR '2026-09 Setup Dynamic Update for Windows 11, version 24H2 for x64-based Systems (KB5127216)' $pDu)) }
+    @{ f = 'Win11_Enterprise_24H2'; c = 'SetupDU'; ok = (RR '2026-09 Setup Dynamic Update for Windows 11, version 24H2 for x64-based Systems (KB5127216)' $pDu)
+       no = @((RR '2026-09 Safe OS Dynamic Update for Windows 11, version 24H2 for x64-based Systems (KB5125758)' 'Windows Safe OS Dynamic Update, Windows 10 and later Dynamic Update')) }
+)
+foreach ($k in $cases) {
+    $rule = Rule-Of $k.f $k.c
+    $okPass = Test-CatalogCandidate -Result $k.ok -Rule $rule
+    $noPass = @($k.no | Where-Object { Test-CatalogCandidate -Result $_ -Rule $rule })
+    Check "built-in $($k.f) $($k.c): accepts the real entry, rejects its $(@($k.no).Count) neighbour(s)" ($okPass -and $noPass.Count -eq 0) "accepted=$okPass wronglyAccepted=$(($noPass | ForEach-Object { $_.Title }) -join ' | ')"
+}
 
 # A class whose search returns nothing must not stop the run (Terry's real LTSC 2019 dry run: the Safe OS DU search
 # returned 0 results and the run died on '.Count' under StrictMode); later classes still run and it is reported.

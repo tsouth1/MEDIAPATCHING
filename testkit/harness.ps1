@@ -1,6 +1,6 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-$src = Get-Content -Raw $(if ($env:MR_SCRIPT) { $env:MR_SCRIPT } else { '/mnt/user-data/outputs/MediaRefresh_v2.2.ps1' })
+$src = Get-Content -Raw $(if ($env:MR_SCRIPT) { $env:MR_SCRIPT } else { (Join-Path $PSScriptRoot '../MediaRefresh_v2.4.ps1') })
 $m = [regex]::Match($src, '(?s)#region ENGINE(.*?)#endregion ENGINE')
 $tmp = Join-Path $PWD 'engine_only.ps1'; Set-Content $tmp $m.Groups[1].Value
 . $tmp

@@ -1,5 +1,5 @@
-# Runs every mock-based check against the script named in $env:MR_SCRIPT (default: /mnt/user-data/outputs/MediaRefresh_v2.2.ps1).
-# Usage (PowerShell 7):  $env:MR_SCRIPT = '/path/to/MediaRefresh_v2.2.ps1'; pwsh -NoProfile -File run_all.ps1
+# Runs every mock-based check against the script named in $env:MR_SCRIPT (default: ../MediaRefresh_v2.4.ps1, beside this folder).
+# Usage (PowerShell 7):  pwsh -NoProfile -File run_all.ps1   (or set $env:MR_SCRIPT first to test another copy of the script)
 # Run it from the folder that holds these files: the tests write scratch folders (e2e, ptest, rt, tst) next to themselves.
 $pwsh = (Get-Process -Id $PID).Path
 $total = 0; $failed = 0
