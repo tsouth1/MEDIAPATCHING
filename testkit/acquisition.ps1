@@ -321,4 +321,19 @@ Check '-SkipNotApplicable: the not-applicable 4.8 part is skipped with a WARN, t
 $threw = $false; try { Add-Packages -MountPath (Join-Path $base 'mnt') -Packages $pkgs -Target 'install.wim index 1' -Label 'LCU (final)' } catch { $threw = $true }
 Check 'without -SkipNotApplicable (every other class) a not-applicable package still fails the run' $threw
 
+Write-Host "`n=== A9 each KB named once in the confirm dialog / log, and each pick downloaded once (Terry, 2026-09-24) ==="
+Check 'Format-CatalogPick: a title that already ends in its KB is left as it is' ((Format-CatalogPick -Title $t64 -Kb 'KB5126144') -eq $t64)
+Check 'Format-CatalogPick: a title without the KB gets it appended' ((Format-CatalogPick -Title 'Some update' -Kb 'KB1234567') -eq 'Some update (KB1234567)')
+Check 'Format-CatalogPick: no KB leaves the title alone' ((Format-CatalogPick -Title 'Some update' -Kb '') -eq 'Some update')
+Reset-Test; $script:LogLines.Clear()
+$resDry9 = Invoke-PatchAcquisition -Options ([pscustomobject]@{ OsName = 'TestOS3'; Root = $base; Mode = 'Download'; DryRun = $true; LCU = $false; NetCU = $true; SafeOS = $false; SetupDU = $false }) -Definition $realDef -Paths $paths3
+$selLine = @($script:LogLines -match 'NetCU: selected') | Select-Object -First 1
+Check 'the dry-run "selected" log line names the KB once' ($selLine -and ([regex]::Matches($selLine, 'KB5126144')).Count -eq 1) "$selLine"
+Check 'the dry-run plan has one entry per class' (@($resDry9.Plan).Count -eq 1)
+$dialogLines = @($resDry9.Plan | ForEach-Object { "  $($_.Class): $(Format-CatalogPick -Title $_.Title -Kb $_.Kb)" })
+Check 'the confirm dialog line names the KB once' (([regex]::Matches(($dialogLines -join "`n"), 'KB5126144')).Count -eq 1) ($dialogLines -join ' | ')
+Reset-Test
+$null = Invoke-PatchAcquisition -Options ([pscustomobject]@{ OsName = 'TestOS3'; Root = $base; Mode = 'Download'; DryRun = $false; LCU = $false; NetCU = $true; SafeOS = $false; SetupDU = $false }) -Definition $realDef -Paths $paths3
+Check 'the confirmed real run downloads the picked entry exactly once' (@($script:Calls -match '^CatalogSave').Count -eq 1)
+
 Write-Host "`nRESULT: $pass passed, $fail failed"

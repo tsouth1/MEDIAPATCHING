@@ -43,6 +43,8 @@
                catalog as written. A search over 100 characters (the catalog returns nothing for it) is refused when the
                profile loads. The 21H2, Server 2022 and Win11 24H2 rules were corrected from the real catalog, and
                Win11 24H2 gained a .NET CU rule.
+      * Fixed: the "confirm download" dialog and the "selected" log line listed every KB twice (the catalog title
+               already ends in it). Display only - each pick was always downloaded once.
     Version 2.2.0 (draft - test against non-production images first).
       * Added: OS profiles are JSON files in a Profiles folder beside the script (created from the built-in profiles the first
                time the folder is empty). Edit a file and press "Reload profiles"; a bad file is reported and skipped.
@@ -449,6 +451,13 @@ function Get-KbFromName {
     $m = [regex]::Match([string]$Name, '(?i)KB[0-9]{6,8}')
     if ($m.Success) { return $m.Value.ToUpperInvariant() } else { return '' }
 }
+function Format-CatalogPick {
+    # "<title> (<KB>)" for the dry-run dialog and log - but catalog titles already end in "(KBnnnnnnn)", so the KB is only
+    # added when the title does not contain it (Terry, 2026-09-24: every KB was listed twice).
+    param([string]$Title, [string]$Kb)
+    if ($Kb -and $Title -notmatch [regex]::Escape($Kb)) { return "$Title ($Kb)" }
+    return $Title
+}
 function Get-EventCategory {
     # Maps an Add-Packages -Label to a Section A category, without touching every call site.
     param([string]$Label)
@@ -716,7 +725,7 @@ function Invoke-PatchAcquisition {
             $title = [string](Get-ProfileValue $best 'Title' '(untitled catalog result)')
             $kb = Get-KbFromName $title
             $plan.Add([pscustomobject]@{ Class = $class; Title = $title; Kb = $kb })
-            Write-Log "$class`: selected '$title'$(if ($kb) { " ($kb)" })$(if ($searchTerms.Count -gt 1) { " [search: $term]" })"
+            Write-Log "$class`: selected '$(Format-CatalogPick -Title $title -Kb $kb)'$(if ($searchTerms.Count -gt 1) { " [search: $term]" })"
             if ($dryRun) { continue }
 
             $folder = Join-Path $Paths.Patches $folders[$class]
@@ -1732,7 +1741,7 @@ function Complete-BackgroundRun {
             [System.Windows.MessageBox]::Show($msg, 'WimForge', 'OK', 'Information') | Out-Null
             $script:RunButton.IsEnabled = $true; $script:AcquirePatchesButton.IsEnabled = $true; $script:CancelButton.IsEnabled = $false
         } else {
-            $lines = @($plan | ForEach-Object { "  $($_.Class): $($_.Title)$(if ($_.Kb) { " ($($_.Kb))" })" })
+            $lines = @($plan | ForEach-Object { "  $($_.Class): $(Format-CatalogPick -Title $_.Title -Kb $_.Kb)" })
             $msg = "This would download and keep the following (older files already in the same PATCHES class are removed; PATCHES\SSU is never touched):`n`n$($lines -join "`n")`n`nDownload these now?"
             $answer = [System.Windows.MessageBox]::Show($msg, 'WimForge - confirm download', 'YesNo', 'Question')
             if ($answer -eq 'Yes' -and $script:PendingDownloadOptions) {

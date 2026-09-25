@@ -6,7 +6,7 @@ Last updated: 2026-09-24. The list now tracks one script only, v2.4. Older versi
 
 Where v2.4 stands:
 
-- **Mock test kit:** 7 suites, 255 checks, all passing on Windows PowerShell 5.1 and PowerShell 7.6 (2026-09-24).
+- **Mock test kit:** 7 suites, 262 checks, all passing on Windows PowerShell 5.1 and PowerShell 7.6 (2026-09-24).
 - **Real Microsoft Update Catalog:** every built-in rule for all five profiles picks the right entry from the live catalog (2026-09-24, step 2A), confirmed by GUI dry runs of all five OSes on the build machine the same evening. No real (non-dry-run) GUI download since the fixes yet.
 - **Real images and real DISM:** never run on v2.4. A v2.2 run of IoT LTSC 2021 finished with 0 verify issues on 2026-09-21, but v2.3 and v2.4 changed the servicing code (package handling, verification, .NET CU skipping), so that run does not count for v2.4.
 
@@ -65,6 +65,7 @@ Run with the regenerated profiles (`Profiles_corrected_2026-09-24.zip`, written 
 **Still open**
 
 - [x] **Regenerate the `Profiles` folder** on the build machine (done 2026-09-24; the dry runs above used the new files).
+- [x] **Fixed 2026-09-24: the "WimForge - confirm download" message listed every KB twice** (Terry). Cause: the line is built as `<class>: <title> (<KB>)`, but the catalog title already ends in the KB, e.g. `LCU: 2026-09 Cumulative Update ... (KB5129238) (KB5129238)`. The run log's `selected '...' (KB...)` line doubles it the same way. Fixed with `Format-CatalogPick` (adds the KB only when the title does not already contain it), used for both the dialog and the log line; 7 new checks (test kit 262). **Not a double download**: checked in the code, the plan holds one entry per class (per search term), and the real run downloads each entry once (the 2026-09-23 real download log shows one download per class). A test now also confirms a real run downloads the picked entry exactly once; confirm again on the next real GUI download.
 - [ ] **Win11 24H2 checkpoint vs a current ISO.** The Win11 ISO is already at 26100.9168, past checkpoint KB5043080 (26100.1742), but the LCU entry downloads the checkpoint too and the engine adds each file separately. Not yet known whether DISM passes over the already-included checkpoint or fails the LCU step as not applicable. Check on the first Win11 24H2 servicing run (2B); if it fails, skip a not-applicable checkpoint the way the not-applicable .NET CU part is skipped.
 - [ ] **One real (non-dry-run) download from the GUI**, to confirm the multi-file entries land as expected: 21H2 / Server 2022 .NET CU (a 4.8 and a 4.8.1 file each; the part that does not apply is skipped at servicing) and the Win11 24H2 LCU (the LCU plus checkpoint KB5043080, applied checkpoint first because it sorts first by name).
 - [ ] **1809 Setup DU:** the newest one is from 2025-11. Setup DUs for 1809 are released less often than Safe OS DUs, so this is expected, but worth a glance at the catalog before relying on it.
