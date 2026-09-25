@@ -7,7 +7,7 @@ Last updated: 2026-09-24. The list now tracks one script only, v2.4. Older versi
 Where v2.4 stands:
 
 - **Mock test kit:** 7 suites, 255 checks, all passing on Windows PowerShell 5.1 and PowerShell 7.6 (2026-09-24).
-- **Real Microsoft Update Catalog:** every built-in rule for all five profiles picks the right entry from the live catalog (2026-09-24, step 2A). Nothing has been downloaded through the GUI since those fixes.
+- **Real Microsoft Update Catalog:** every built-in rule for all five profiles picks the right entry from the live catalog (2026-09-24, step 2A), confirmed by GUI dry runs of all five OSes on the build machine the same evening. No real (non-dry-run) GUI download since the fixes yet.
 - **Real images and real DISM:** never run on v2.4. A v2.2 run of IoT LTSC 2021 finished with 0 verify issues on 2026-09-21, but v2.3 and v2.4 changed the servicing code (package handling, verification, .NET CU skipping), so that run does not count for v2.4.
 
 ## Index
@@ -58,10 +58,15 @@ Terry's real download run the day before (`MediaRefresh_20260923_084200.log`, LT
 - **Built-in rules corrected from the real results:** 21H2 and Server 2022 NetCU use the combined "3.5, 4.8 and 4.8.1" entry (two files each, like 1809); 21H2 and Server 2022 Safe OS / Setup DU use the 1809 pattern (plain "Dynamic Update for ..." title, told apart by the Products field); Win11 24H2 gained a NetCU rule (its .NET CU *is* a separate catalog entry) and title filters on Safe OS / Setup DU (its titles changed from "Windows 11 Version 24H2" to "Windows 11, version 24H2" in 2026-05; the filters accept both). Profile notes now say the rules were checked on 2026-09-24.
 - **Test kit under Windows PowerShell 5.1:** two test-only fixes (a three-part `Join-Path`, and a JSON check that assumed PowerShell 7 spacing). All 7 suites pass on 5.1 and 7.
 
+**GUI dry runs on the build machine (Terry, 2026-09-24 22:16-22:18): all five OSes, 20 of 20 picks correct, no WARN or ERROR lines**
+
+Run with the regenerated profiles (`Profiles_corrected_2026-09-24.zip`, written by the script's own `Save-BuiltInProfiles` and reloaded with 0 differences from the built-ins). Every pick matches the table above. Logs: `MediaRefresh_W10LTSC2019_1809.log` and the four in `MediaRefresh.zip`. Base builds read from the ISOs: LTSC 2019 10.0.17763.107, LTSC 2021 IoT and KMS 10.0.19041.1288 (21H2 is an enablement package on 19041), Win11 24H2 10.0.26100.9168, Server 2022 10.0.20348.5499.
+
 **Still open**
 
-- [ ] **Action for Terry before the next GUI dry run:** profile JSON files are only generated when the `Profiles` folder is empty, so an existing `Profiles\*.json` keeps the old `catalogSearch` values (which cannot find Safe OS / Setup DU, 21H2 / Server 2022 .NET CUs, or the Win11 .NET CU). Delete the `Profiles` folder (or the files you have not hand-edited) and press "Reload profiles".
-- [ ] **One real download dry run + download from the GUI**, to confirm the multi-file entries land as expected: 21H2 / Server 2022 .NET CU (a 4.8 and a 4.8.1 file each; the part that does not apply is skipped at servicing) and the Win11 24H2 LCU (the LCU plus checkpoint KB5043080, applied checkpoint first because it sorts first by name).
+- [x] **Regenerate the `Profiles` folder** on the build machine (done 2026-09-24; the dry runs above used the new files).
+- [ ] **Win11 24H2 checkpoint vs a current ISO.** The Win11 ISO is already at 26100.9168, past checkpoint KB5043080 (26100.1742), but the LCU entry downloads the checkpoint too and the engine adds each file separately. Not yet known whether DISM passes over the already-included checkpoint or fails the LCU step as not applicable. Check on the first Win11 24H2 servicing run (2B); if it fails, skip a not-applicable checkpoint the way the not-applicable .NET CU part is skipped.
+- [ ] **One real (non-dry-run) download from the GUI**, to confirm the multi-file entries land as expected: 21H2 / Server 2022 .NET CU (a 4.8 and a 4.8.1 file each; the part that does not apply is skipped at servicing) and the Win11 24H2 LCU (the LCU plus checkpoint KB5043080, applied checkpoint first because it sorts first by name).
 - [ ] **1809 Setup DU:** the newest one is from 2025-11. Setup DUs for 1809 are released less often than Safe OS DUs, so this is expected, but worth a glance at the catalog before relying on it.
 
 ### 2B. Real servicing runs (Terry, on the build machine)
