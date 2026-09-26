@@ -258,6 +258,21 @@ if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT -and (Test-Path 
 # 3. housekeeping folders under WindowsApps are not listed as staged appx packages
 $names13 = @('Clipchamp.Clipchamp_4.4.10720.0_x64__yxz26nhyzhsrt', 'Clipchamp.Clipchamp_4.4.10720.0_neutral_split.scale-100_yxz26nhyzhsrt', 'Microsoft.ApplicationCompatibilityEnhancements_1.2511.9.0_neutral_~_8wekyb3d8bbwe', 'Deleted', 'Merged', 'MovedPackages', 'DeletedAllUserPackages', 'Mutable')
 $kept13 = @($names13 | Where-Object { Test-AppxPackageFolder $_ })
+Write-Host "`n=== E14 languages go into install.wim only: WinRE and boot.wim stay English-only (Terry, 2026-09-26) ==="
+# Ten languages with WinRE AND Boot ticked, and an LP ISO that also carries the WinPE language cabs the old code used
+Reset-Test; $script:ImageCount=1
+Fake-Iso 'Win10_Enterprise_LTSC_2019' 'os2019' @('sources/boot.wim')
+Fake-Iso 'Win10_Enterprise_LTSC_2019' 'lpall' @('Windows Preinstallation Environment/x64/WinPE_OCs/de-de/lp.cab', 'Windows Preinstallation Environment/x64/WinPE_OCs/WinPE-FontSupport-ja-jp.cab')
+$logs14 = [System.Collections.Generic.List[string]]::new()
+$wl14 = ${function:Write-Log}; function Write-Log { param($Message,$Level='INFO') $logs14.Add("[$Level] $Message") }
+Invoke-MediaRefresh (Opts 'Windows 10 Enterprise LTSC 2019 (IoT)' $langs10 @{ WinRE=$true; Boot=$true })
+Set-Item function:Write-Log $wl14
+$winpeAdds = @($script:Calls | Where-Object { $_ -match '^AddPkg .* @ (WinRE|WinPE)$' -and $_ -match '(?i)language|lp\.cab|WinPE-' })
+Check 'no language pack or WinPE language cab is added to WinRE or boot.wim' ($winpeAdds.Count -eq 0) ($winpeAdds -join ' | ')
+Check 'the 10 language packs still go into install.wim' (@($script:Calls | Where-Object { $_ -match 'AddPkg Microsoft-Windows-Client-Language-Pack_x64_.* @ MainOS' }).Count -eq 10)
+Check 'WinRE and boot.wim were still serviced (LCU added to both)' (@($script:Calls -match '^AddPkg .* @ WinRE').Count -ge 1 -and @($script:Calls -match '^AddPkg .* @ WinPE').Count -ge 1)
+Check 'the log says languages go into install.wim only' ([bool]($logs14 -match 'Languages are added to install.wim only; WinRE and boot.wim stay English-only'))
+
 Check 'Test-AppxPackageFolder keeps the real package folders and drops Deleted / Merged / other housekeeping folders' ($kept13.Count -eq 3 -and $kept13 -notcontains 'Deleted' -and $kept13 -notcontains 'Merged') ($kept13 -join ',')
 
 Write-Host "`nRESULT: $pass passed, $fail failed"

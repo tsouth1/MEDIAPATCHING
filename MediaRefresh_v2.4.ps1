@@ -65,6 +65,9 @@
                is now compared before and after, and an unchanged list is logged as a WARN and recorded as skipped.
       * Fixed: a Features on Demand ISO without language features (1809 "FOD part 2") is recognised as an extra FOD
                source by its metadata\*CompDB* catalogue or package-identity cabs, instead of "not recognised".
+      * Changed (Terry, 2026-09-26): languages go into install.wim only. WinRE and boot.wim stay English-only - the
+               WinPE language step (lp.cab, WinPE component, font and speech cabs, lang.ini) is removed; WinRE and
+               boot.wim are still patched.
     Version 2.2.0 (draft - test against non-production images first).
       * Added: OS profiles are JSON files in a Profiles folder beside the script (created from the built-in profiles the first
                time the folder is empty). Edit a file and press "Reload profiles"; a bad file is reported and skipped.
@@ -999,14 +1002,6 @@ function Resolve-LanguagePacks {
     if ($missing.Count -gt 0) { throw "Language pack cab not found for: $($missing -join ', ') (looked for $($Pattern -f '<lang>') in $LpRoot). Check that the correct Language Pack ISO is in the ISO folder." }
     return $found
 }
-function Find-WinPeOcRoot {
-    param([string[]]$Drives)
-    foreach ($d in @($Drives | Where-Object { $_ })) {
-        $p = Join-Chain $d @('Windows Preinstallation Environment', 'x64', 'WinPE_OCs')
-        if (Test-Path -LiteralPath $p) { return $p }
-    }
-    return $null
-}
 
 # ---------- languages ----------
 function Add-OfflineLanguages {
@@ -1034,37 +1029,12 @@ function Add-OfflineLanguages {
         }
     }
 }
-function Add-WinPeLanguages {
-    param([string]$MountPath, [string]$OcRoot, [string[]]$Languages = @(), [string]$Target)
-    if (-not $OcRoot -or @($Languages).Count -eq 0) { return }
-    foreach ($lang in @($Languages)) {
-        $langRoot = Join-Path $OcRoot $lang
-        $lp = Join-Path $langRoot 'lp.cab'
-        if (Test-Path -LiteralPath $lp) { Add-Packages $MountPath @(Get-Item -LiteralPath $lp) $Target -Label "WinPE language pack $lang" }
-        else { Write-Log "WinPE lp.cab for $lang was not found." 'WARN'; continue }
-        $installed = @(Get-WindowsPackage -Path $MountPath)
-        $langCabs = @(Get-ChildItem -LiteralPath $langRoot -Filter '*.cab' -File -ErrorAction SilentlyContinue)
-        foreach ($pkg in $installed) {
-            if ($pkg.PackageState -eq 'Installed' -and $pkg.PackageName.StartsWith('WinPE-') -and $pkg.ReleaseType -eq 'FeaturePack') {
-                $pos = $pkg.PackageName.IndexOf('-Package')
-                if ($pos -ge 0) {
-                    $cabName = $pkg.PackageName.Substring(0, $pos) + '_' + $lang + '.cab'
-                    $cab = $langCabs | Where-Object Name -eq $cabName | Select-Object -First 1
-                    if ($cab) { Add-Packages $MountPath @($cab) $Target -Label "WinPE component $cabName" }
-                }
-            }
-        }
-        foreach ($name in @("WinPE-FontSupport-$lang.cab", 'WinPE-Speech-TTS.cab', "WinPE-Speech-TTS-$lang.cab")) {
-            $cab = Join-Path $OcRoot $name
-            if (Test-Path -LiteralPath $cab) { Add-Packages $MountPath @(Get-Item -LiteralPath $cab) $Target -Label "WinPE component $name" }
-        }
-    }
-}
 
 # ---------- servicing ----------
 function Service-WinRe {
     # Extracts winre.wim from the currently mounted OS image, services it, and exports the result to $OutputPath.
-    param([string]$OsMount, [string]$WinReMount, [string]$Temp, [string]$OutputPath, [hashtable]$Packages, [string]$OcRoot, [string[]]$Languages)
+    # No languages: they go into install.wim only; WinRE and boot.wim stay English-only (Terry, 2026-09-26).
+    param([string]$OsMount, [string]$WinReMount, [string]$Temp, [string]$OutputPath, [hashtable]$Packages)
     Assert-NotCancelled
     $dl = $script:DismLogArgs
     $embedded = Join-Chain $OsMount @('Windows', 'System32', 'Recovery', 'winre.wim')
@@ -1079,7 +1049,6 @@ function Service-WinRe {
         Mount-WindowsImage -ImagePath $working -Index 1 -Path $WinReMount -CheckIntegrity @dl -ErrorAction Stop | Out-Null
         Add-Packages $WinReMount $Packages.SSU 'WinRE' -Label 'SSU' -IgnoreCombinedLcu7007e
         Add-Packages $WinReMount $Packages.LCU 'WinRE' -Label 'LCU' -IgnoreCombinedLcu7007e
-        Add-WinPeLanguages $WinReMount $OcRoot $Languages 'WinRE'
         Add-Packages $WinReMount $Packages.SafeOS 'WinRE' -Label 'Safe OS DU'
         Invoke-DismExe -Arguments @("/Image:$WinReMount", '/Cleanup-Image', '/StartComponentCleanup', '/ResetBase', '/Defer') -Description 'Cleaning WinRE'
         Dismount-WindowsImage -Path $WinReMount -Save -CheckIntegrity @dl -ErrorAction Stop | Out-Null
@@ -1094,7 +1063,7 @@ function Service-WinRe {
 }
 function Service-InstallIndex {
     param([string]$ImagePath, [int]$Index, [hashtable]$Paths, [hashtable]$Packages, [string]$OsDrive,
-          [hashtable]$LpFiles, [string[]]$FodSource = @(), [string]$OcRoot, [string[]]$Languages = @(), [bool]$DoWinRe, [bool]$DoNetFx3)
+          [hashtable]$LpFiles, [string[]]$FodSource = @(), [string[]]$Languages = @(), [bool]$DoWinRe, [bool]$DoNetFx3)
     Assert-NotCancelled
     $dl = $script:DismLogArgs
     $target = "install.wim index $Index"
@@ -1108,7 +1077,7 @@ function Service-InstallIndex {
         if ($DoWinRe) {
             $cache = Join-Path $Paths.WinRE 'winre.serviced.wim'
             if (-not (Test-Path -LiteralPath $cache)) {
-                [void](Service-WinRe -OsMount $Paths.MainMount -WinReMount $Paths.WinReMount -Temp $Paths.Temp -OutputPath $cache -Packages $Packages -OcRoot $OcRoot -Languages $Languages)
+                [void](Service-WinRe -OsMount $Paths.MainMount -WinReMount $Paths.WinReMount -Temp $Paths.Temp -OutputPath $cache -Packages $Packages)
             }
             if (Test-Path -LiteralPath $cache) {
                 Write-Log "Applying serviced WinRE to $target"
@@ -1156,7 +1125,8 @@ function Export-OptimizedWim {
     }
 }
 function Service-BootWim {
-    param([string]$SourceBoot, [string]$Destination, [hashtable]$Paths, [hashtable]$Packages, [string]$OcRoot, [string[]]$Languages = @())
+    # No languages: boot.wim (WinPE / Setup) stays English-only (Terry, 2026-09-26).
+    param([string]$SourceBoot, [string]$Destination, [hashtable]$Paths, [hashtable]$Packages)
     $dl = $script:DismLogArgs
     $working = Join-Path $Paths.Working 'boot.working.wim'
     $optimized = Join-Path $Paths.Temp 'boot.optimized.wim'
@@ -1170,12 +1140,6 @@ function Service-BootWim {
             Mount-WindowsImage -ImagePath $working -Index $image.ImageIndex -Path $Paths.WinPeMount -CheckIntegrity @dl -ErrorAction Stop | Out-Null
             Add-Packages $Paths.WinPeMount $Packages.SSU $target -Label 'SSU' -IgnoreCombinedLcu7007e
             Add-Packages $Paths.WinPeMount $Packages.LCU $target -Label 'LCU' -IgnoreCombinedLcu7007e
-            if (@($Languages).Count -gt 0 -and $OcRoot) {
-                Add-WinPeLanguages $Paths.WinPeMount $OcRoot $Languages $target
-                if (Test-Path -LiteralPath (Join-Chain $Paths.WinPeMount @('sources', 'lang.ini'))) {
-                    Invoke-DismExe -Arguments @("/Image:$($Paths.WinPeMount)", '/Gen-LangINI', "/Distribution:$($Paths.WinPeMount)") -Description "Regenerating lang.ini in $target"
-                }
-            }
             Invoke-DismExe -Arguments @("/Image:$($Paths.WinPeMount)", '/Cleanup-Image', '/StartComponentCleanup', '/ResetBase', '/Defer') -Description "Cleaning $target"
             Dismount-WindowsImage -Path $Paths.WinPeMount -Save -CheckIntegrity @dl -ErrorAction Stop | Out-Null
         } catch {
@@ -1537,7 +1501,6 @@ function Invoke-MediaRefresh {
         foreach ($u in $roles.Unclassified) { Write-Log "ISO not recognised as OS, Language Pack or FOD (ignored): $u" 'WARN' }
         $osDrive = $roles.OsDrive
         $fodSource = @(Get-FodSource $roles.FodDrives)
-        $ocRoot = Find-WinPeOcRoot (@($roles.LpDrive) + @($roles.FodDrives))
         $driveToFile = @{}
         foreach ($m in $mounted) { $driveToFile[$m.Drive] = (Split-Path $m.Path -Leaf) }
         $script:IsoSources.Add([pscustomobject]@{ Role = 'OS'; File = $driveToFile[$osDrive] })
@@ -1550,7 +1513,7 @@ function Invoke-MediaRefresh {
             if (@($roles.FodDrives).Count -eq 0) { throw "Languages are selected but no Features on Demand ISO is in $($paths.ISO); language features and fonts need it. Add it or untick the languages." }
             $lpFiles = Resolve-LanguagePacks -LpRoot $roles.LpDrive -Pattern $definition.LpPattern -Languages $languages
             Write-Log "All $($languages.Count) language packs located."
-            if (-not $ocRoot -and ([bool]$Options.WinRE -or [bool]$Options.Boot)) { Write-Log 'WinPE language cabs (Windows Preinstallation Environment\x64\WinPE_OCs) were not found on the LP/FOD ISOs; WinRE/boot.wim will not get languages.' 'WARN' }
+            if ([bool]$Options.WinRE -or [bool]$Options.Boot) { Write-Log 'Languages are added to install.wim only; WinRE and boot.wim stay English-only.' }
         }
 
         $sourceWim = if (Test-Path -LiteralPath (Join-Chain $osDrive @('sources', 'install.wim'))) { Join-Chain $osDrive @('sources', 'install.wim') } else { Join-Chain $osDrive @('sources', 'install.esd') }
@@ -1596,7 +1559,7 @@ function Invoke-MediaRefresh {
                 Set-Progress (15 + [int](45 * $n / $workImages.Count)) "Servicing install.wim $indexLabel"
                 Set-Phase "Servicing install.wim ($indexLabel)"
                 Service-InstallIndex -ImagePath $workingInstall -Index $img.ImageIndex -Paths $paths -Packages $packages -OsDrive $osDrive `
-                    -LpFiles $lpFiles -FodSource $fodSource -OcRoot $ocRoot -Languages $languages -DoWinRe ([bool]$Options.WinRE) -DoNetFx3 ([bool]$Options.NetFx3)
+                    -LpFiles $lpFiles -FodSource $fodSource -Languages $languages -DoWinRe ([bool]$Options.WinRE) -DoNetFx3 ([bool]$Options.NetFx3)
             }
             Backup-PreviousOutput -Paths $paths -Stamp $stamp -Keep $definition.KeepArchives
             $finalInstall = Join-Path $paths.NewWim 'install.wim'
@@ -1625,7 +1588,7 @@ function Invoke-MediaRefresh {
             Set-Progress 75 'Servicing boot.wim'
             Backup-PreviousOutput -Paths $paths -Stamp $stamp -Keep $definition.KeepArchives
             $finalBoot = Join-Path $paths.NewWim 'boot.wim'
-            Service-BootWim -SourceBoot $sourceBoot -Destination $finalBoot -Paths $paths -Packages $packages -OcRoot $ocRoot -Languages $languages
+            Service-BootWim -SourceBoot $sourceBoot -Destination $finalBoot -Paths $paths -Packages $packages
             Write-Log "Import-ready boot.wim created: $finalBoot"
         }
         if ($Options.BuildMedia -or $Options.BuildIso) {

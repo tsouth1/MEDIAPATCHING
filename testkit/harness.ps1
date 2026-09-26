@@ -106,7 +106,9 @@ Check 'a FOD ISO is recognised by its package-identity cabs alone' ((Get-IsoRole
 Check 'the Language Pack ISO is still not a FOD ISO, and a junk ISO is still unrecognised' ((@((Get-IsoRoleMap @($os,$lp)).FodDrives).Count -eq 0) -and (@((Get-IsoRoleMap @($os,$junk)).Unclassified).Count -eq 1))
 $r = Get-IsoRoleMap @($os,$svr,$lp)
 Check 'two LP candidates: the LP-only ISO wins over the combined one' ($r.LpDrive -eq $lp.Drive)
-Check 'WinPE OC root found on the LangPackAll ISO' ((Find-WinPeOcRoot @($lpWithFeat.Drive)) -like '*WinPE_OCs')
+# Languages go into install.wim only; WinRE and boot.wim stay English-only (Terry, 2026-09-26)
+Check 'no WinPE language step is left (WinRE and boot.wim stay English-only)' (-not (Get-Command Add-WinPeLanguages -ErrorAction SilentlyContinue) -and -not (Get-Command Find-WinPeOcRoot -ErrorAction SilentlyContinue))
+Check 'Service-WinRe and Service-BootWim no longer take languages' (-not (Get-Command Service-WinRe).Parameters.ContainsKey('Languages') -and -not (Get-Command Service-BootWim).Parameters.ContainsKey('Languages'))
 
 Write-Host "`n=== T4 Resolve-LanguagePacks ==="
 $f = Resolve-LanguagePacks -LpRoot $lp.Drive -Pattern $script:ClientLpPattern -Languages @('de-de','ja-jp')
@@ -128,7 +130,7 @@ $script:DismLogArgs = @{}
 Write-Host "`n=== T5b Service-InstallIndex order: LTSC 2019 with languages, WinRE on, NetFx3 on ==="
 Reset-Test; $p = New-Paths 'a'
 $pk = @{ SSU=@([pscustomobject]@{FullName='/p/ssu.msu'}); LCU=@([pscustomobject]@{FullName='/p/lcu.msu'}); NetCU=@([pscustomobject]@{FullName='/p/net1.msu'},[pscustomobject]@{FullName='/p/net2.msu'}); SafeOS=@([pscustomobject]@{FullName='/p/safeos.cab'}); SetupDU=@() }
-Service-InstallIndex -ImagePath '/w/install.working.wim' -Index 1 -Paths $p -Packages $pk -OsDrive $os.Drive -LpFiles @{ 'de-de'='/lp/de.cab'; 'ja-jp'='/lp/ja.cab' } -FodSource $fod.Drive -OcRoot $null -Languages @('de-de','ja-jp') -DoWinRe $true -DoNetFx3 $true
+Service-InstallIndex -ImagePath '/w/install.working.wim' -Index 1 -Paths $p -Packages $pk -OsDrive $os.Drive -LpFiles @{ 'de-de'='/lp/de.cab'; 'ja-jp'='/lp/ja.cab' } -FodSource $fod.Drive -Languages @('de-de','ja-jp') -DoWinRe $true -DoNetFx3 $true
 $seq = ($script:Calls -join "`n")
 $script:Calls | ForEach-Object { "      $_" }
 function Idx($pattern,$fromIdx=0) { for ($i=$fromIdx; $i -lt $script:Calls.Count; $i++) { if ($script:Calls[$i] -match $pattern) { return $i } }; return -1 }
@@ -145,7 +147,7 @@ Check 'nothing left mounted' ($script:MountedList.Count -eq 0)
 Write-Host "`n=== T5c Win11 English-only: single LCU pass, no language calls ==="
 Reset-Test; $p = New-Paths 'b'
 $pk = @{ SSU=@(); LCU=@([pscustomobject]@{FullName='/p/lcu.msu'}); NetCU=@(); SafeOS=@(); SetupDU=@() }
-Service-InstallIndex -ImagePath '/w/i.wim' -Index 1 -Paths $p -Packages $pk -OsDrive $os.Drive -LpFiles @{} -FodSource $null -OcRoot $null -Languages @() -DoWinRe $false -DoNetFx3 $false
+Service-InstallIndex -ImagePath '/w/i.wim' -Index 1 -Paths $p -Packages $pk -OsDrive $os.Drive -LpFiles @{} -FodSource $null -Languages @() -DoWinRe $false -DoNetFx3 $false
 $seq = ($script:Calls -join "`n")
 Check 'LCU applied once' (@($script:Calls | Where-Object { $_ -match 'AddPkg lcu.msu' }).Count -eq 1)
 Check 'no capability / language calls' (-not ($seq -match 'AddCap'))
@@ -154,7 +156,7 @@ Check 'cleanup then save' ((Idx 'DISM: Component cleanup') -lt (Idx 'Dismount Ma
 Write-Host "`n=== T5d Server: 4 indexes, WinRE serviced ONCE and reused ==="
 Reset-Test; $p = New-Paths 'c'
 $pk = @{ SSU=@(); LCU=@([pscustomobject]@{FullName='/p/lcu.msu'}); NetCU=@(); SafeOS=@([pscustomobject]@{FullName='/p/safeos.cab'}); SetupDU=@() }
-foreach ($i in 1..4) { Service-InstallIndex -ImagePath '/w/i.wim' -Index $i -Paths $p -Packages $pk -OsDrive $os.Drive -LpFiles @{} -FodSource $null -OcRoot $null -Languages @() -DoWinRe $true -DoNetFx3 $false }
+foreach ($i in 1..4) { Service-InstallIndex -ImagePath '/w/i.wim' -Index $i -Paths $p -Packages $pk -OsDrive $os.Drive -LpFiles @{} -FodSource $null -Languages @() -DoWinRe $true -DoNetFx3 $false }
 Check 'Safe OS DU applied to WinRE exactly once across 4 indexes' (@($script:Calls | Where-Object { $_ -match 'AddPkg safeos.cab @ WinReMount' }).Count -eq 1)
 Check 'WinRE copied into all 4 indexes' (@($script:Calls | Where-Object { $_ -match 'DISM: Cleaning WinRE' }).Count -eq 1 -and @($script:Calls | Where-Object { $_ -match '^Mount i.wim idx' }).Count -eq 4)
 Check 'LCU applied once per index (English only)' (@($script:Calls | Where-Object { $_ -match 'AddPkg lcu.msu @ MainMount' }).Count -eq 4)
@@ -162,7 +164,7 @@ Check 'LCU applied once per index (English only)' (@($script:Calls | Where-Objec
 Write-Host "`n=== T5e Failure mid-servicing discards the mount ==="
 Reset-Test; $p = New-Paths 'd'
 function Add-WindowsPackage { [CmdletBinding()] param($Path,$PackagePath,$LogPath) throw 'boom' }
-$threw=$false; try { Service-InstallIndex -ImagePath '/w/i.wim' -Index 1 -Paths $p -Packages @{SSU=@();LCU=@([pscustomobject]@{FullName='/p/lcu.msu'});NetCU=@();SafeOS=@();SetupDU=@()} -OsDrive $os.Drive -LpFiles @{} -FodSource $null -OcRoot $null -Languages @() -DoWinRe $false -DoNetFx3 $false } catch { $threw=$true }
+$threw=$false; try { Service-InstallIndex -ImagePath '/w/i.wim' -Index 1 -Paths $p -Packages @{SSU=@();LCU=@([pscustomobject]@{FullName='/p/lcu.msu'});NetCU=@();SafeOS=@();SetupDU=@()} -OsDrive $os.Drive -LpFiles @{} -FodSource $null -Languages @() -DoWinRe $false -DoNetFx3 $false } catch { $threw=$true }
 Check 'error propagates and image is discarded (works despite trailing backslash in mount list)' ($threw -and $script:MountedList.Count -eq 0 -and ($script:Calls -join ' ') -match 'Dismount MainMount discard')
 
 Write-Host "`nRESULT: $pass passed, $fail failed"

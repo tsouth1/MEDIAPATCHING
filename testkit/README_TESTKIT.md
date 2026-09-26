@@ -2,7 +2,7 @@
 
 These checks exercise the engine without real images or a real DISM: the DISM cmdlets, ISO mounting and free-space reader are replaced by mocks, so call order, error handling, profile loading and output handling can be re-checked after every change.
 
-**Run:** PowerShell 7 or Windows PowerShell 5.1, from this folder: `pwsh -NoProfile -File run_all.ps1`. By default every suite tests `..\MediaRefresh_v2.4.ps1`; set `$env:MR_SCRIPT` to a path to test another copy. Verified on Windows (2026-09-24): 7 suites, 292 checks, all passing under both PowerShell 7.6 and Windows PowerShell 5.1 (`powershell.exe -NoProfile -ExecutionPolicy Bypass -File run_all.ps1`; 5.1 is what the tool itself runs on). These are mock tests only; the real-image and real-catalog checks are TODO.md step 2.
+**Run:** PowerShell 7 or Windows PowerShell 5.1, from this folder: `pwsh -NoProfile -File run_all.ps1`. By default every suite tests `..\MediaRefresh_v2.4.ps1`; set `$env:MR_SCRIPT` to a path to test another copy. Verified on Windows (2026-09-24): 7 suites, 297 checks, all passing under both PowerShell 7.6 and Windows PowerShell 5.1 (`powershell.exe -NoProfile -ExecutionPolicy Bypass -File run_all.ps1`; 5.1 is what the tool itself runs on). These are mock tests only; the real-image and real-catalog checks are TODO.md step 2.
 
 | File | What it covers |
 |---|---|
