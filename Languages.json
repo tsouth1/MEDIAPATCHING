@@ -2,7 +2,7 @@
   { "language": "Catalan (Spain)", "code": "ca-es" },
   { "language": "Czech (Czech Republic)", "code": "cs-cz" },
   { "language": "German (Germany)", "code": "de-de" },
-  { "language": "English (United States)", "code": "en-us" },
+  { "language": "English (United Kingdom)", "code": "en-gb" },
   { "language": "Spanish (Spain)", "code": "es-es" },
   { "language": "French (France)", "code": "fr-fr" },
   { "language": "Hungarian (Hungary)", "code": "hu-hu" },
@@ -17,5 +17,6 @@
   { "language": "Slovak (Slovakia)", "code": "sk-sk" },
   { "language": "Swedish (Sweden)", "code": "sv-se" },
   { "language": "Turkish (Turkey)", "code": "tr-tr" },
-  { "language": "Chinese (Simplified, China)", "code": "zh-cn" }
+  { "language": "Chinese (Simplified, China)", "code": "zh-cn" },
+  { "language": "Chinese (Traditional, Taiwan)", "code": "zh-tw" }
 ]
