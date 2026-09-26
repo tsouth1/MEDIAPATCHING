@@ -163,4 +163,39 @@ Check 'ESD is treated as about 2.5x larger (2*2.5*3+6 = 21)' (@($script:LogLines
 $script:FreeGB = $null; $script:LogLines.Clear(); Test-FreeSpace -Definition $defA -Paths $pp -SourceWim $wim -OsIsoPath $null -Options $opt
 Check 'unreadable free space skips with a WARN' (@($script:LogLines | Where-Object { $_ -like '[[]WARN] Free disk space could not be read*' }).Count -eq 1)
 
+Write-Host "`n=== P10 Languages tab list from Profiles\Languages.json (TODO step 10e) ==="
+# Windows PowerShell 5.1 ConvertFrom-Json passes a JSON array on as ONE object, so enumerate it explicitly
+$repoLangs = @(([System.IO.File]::ReadAllText((Join-Path $PSScriptRoot '../Languages.json')) | ConvertFrom-Json) | ForEach-Object { $_ })
+$builtLangs = @(ConvertTo-LanguageList -Data (Get-BuiltInLanguageData))
+Check 'the built-in list matches the repo Languages.json exactly (names, codes, order)' ((($builtLangs | ForEach-Object { "$($_.Name)|$($_.Code)" }) -join ';') -eq (($repoLangs | ForEach-Object { "$($_.language)|$($_.code)" }) -join ';'))
+Check 'each entry is shown as "full name - code"' ($builtLangs[0].Display -eq 'Catalan (Spain) - ca-es' -and ($builtLangs | Where-Object { $_.Code -eq 'zh-tw' }).Display -eq 'Chinese (Traditional, Taiwan) - zh-tw')
+$langDir = Join-Path $tmp 'langprof'
+$script:ProfileMessages.Clear()
+$l1 = @(Import-LanguageList -Directory $langDir)
+$langFile = Join-Path $langDir 'Languages.json'
+Check 'a missing Languages.json is created from the built-in list and loaded' ((Test-Path $langFile) -and $l1.Count -eq 20 -and [bool]($script:ProfileMessages | Where-Object { $_.Text -like 'Language list created*' }))
+Check 'the created file has the same content as the repo Languages.json' ((((Get-Content $langFile -Raw) | ConvertFrom-Json) | ForEach-Object { "$($_.language)|$($_.code)" }) -join ';' -eq (($repoLangs | ForEach-Object { "$($_.language)|$($_.code)" }) -join ';'))
+Check 'the created file has no BOM (same as the profile files)' ([System.IO.File]::ReadAllBytes($langFile)[0] -eq [byte][char]'[')
+[System.IO.File]::WriteAllText($langFile, '[ { "language": "German (Germany)", "code": "de-de" }, { "language": "Welsh (United Kingdom)", "code": "CY-GB" } ]')
+$l2 = @(Import-LanguageList -Directory $langDir)
+Check 'an edited file wins over the built-in list (codes lower-cased)' ((($l2 | ForEach-Object { $_.Code }) -join ',') -eq 'de-de,cy-gb' -and $l2[1].Display -eq 'Welsh (United Kingdom) - cy-gb')
+foreach ($bad in @('not json', '[]', '[ { "language": "German" } ]', '[ { "language": "German", "code": "german" } ]', '[ { "language": "A", "code": "de-de" }, { "language": "B", "code": "DE-DE" } ]')) {
+    [System.IO.File]::WriteAllText($langFile, $bad); $script:ProfileMessages.Clear()
+    $lb = @(Import-LanguageList -Directory $langDir)
+    Check "a bad file falls back to the built-in list with a WARN: $bad" ($lb.Count -eq 20 -and [bool]($script:ProfileMessages | Where-Object { $_.Level -eq 'WARN' -and $_.Text -like 'Language list * could not be used*' }))
+}
+# Languages.json sits in the Profiles folder but is not an OS profile
+$mixDir = Join-Path $tmp 'mixprof'; $script:ProfileMessages.Clear()
+$null = Import-LanguageList -Directory $mixDir
+$pm = Import-OsProfiles -Directory $mixDir
+Check 'a Profiles folder holding only Languages.json still gets the 5 profile files' ($pm.Count -eq 5 -and @(Get-ChildItem $mixDir -Filter '*.json').Count -eq 6)
+$script:ProfileMessages.Clear(); $pm2 = Import-OsProfiles -Directory $mixDir
+Check 'Languages.json is not read as an OS profile (no "skipped" message)' ($pm2.Count -eq 5 -and -not ($script:ProfileMessages | Where-Object { $_.Text -like '*Languages.json*' }))
+# profile defaults vs the list
+$kms = $b['Windows 10 Enterprise LTSC 2021 (KMS)']
+$s1 = Get-DefaultLanguageSelection -Definition $kms -LanguageList $builtLangs
+Check 'every built-in profile default is on the list (en-gb and zh-tw added 2026-09-26)' (@($s1.Missing).Count -eq 0 -and @($s1.Select).Count -eq 10)
+$s2 = Get-DefaultLanguageSelection -Definition ([pscustomobject]@{ Name = 'X'; DefaultLanguages = @('de-de', 'en-us') }) -LanguageList $builtLangs
+Check 'a default that is not on the list is reported and not selected' ((@($s2.Select) -join ',') -eq 'de-de' -and (@($s2.Missing) -join ',') -eq 'en-us')
+
 Write-Host "`nRESULT: $pass passed, $fail failed"

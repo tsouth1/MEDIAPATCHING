@@ -68,6 +68,9 @@
       * Changed (Terry, 2026-09-26): languages go into install.wim only. WinRE and boot.wim stay English-only - the
                WinPE language step (lp.cab, WinPE component, font and speech cabs, lang.ini) is removed; WinRE and
                boot.wim are still patched.
+      * Changed (Terry, 2026-09-26): the Languages tab lists Profiles\Languages.json (created from the built-in copy
+               of Terry's list when missing; a bad file falls back to the built-in list) as "full name - code"; runs,
+               saved choices and profile defaults use the code. A profile default not on the list is logged, not selected.
     Version 2.2.0 (draft - test against non-production images first).
       * Added: OS profiles are JSON files in a Profiles folder beside the script (created from the built-in profiles the first
                time the folder is empty). Edit a file and press "Reload profiles"; a bad file is reported and skipped.
@@ -174,6 +177,7 @@ $script:DefaultLanguageSet = @('de-de','en-gb','es-es','fr-fr','it-it','ja-jp','
 #   keepArchives: how many archived NEWWIM outputs to keep (0 = keep all);  minFreeGB / spaceCheck: enforce | warn | off
 $script:ProfileClasses  = @('SSU', 'LCU', 'NetCU', 'SafeOS', 'SetupDU')
 $script:ProfileMessages = [System.Collections.Generic.List[object]]::new()
+$script:LanguagesFileName = 'Languages.json'   # Profiles\Languages.json: the Languages tab list (step 10e), not an OS profile
 $script:OutputArchived  = $false
 
 function Get-BuiltInProfileData {
@@ -319,9 +323,11 @@ function Import-OsProfiles {
     $table = @{}
     if ($Directory) {
         try {
-            $hasJson = (Test-Path -LiteralPath $Directory) -and (@(Get-ChildItem -LiteralPath $Directory -Filter '*.json' -File -ErrorAction SilentlyContinue).Count -gt 0)
+            # Languages.json (the Languages tab list, step 10e) lives in the same folder but is not an OS profile.
+            $profileFiles = { @(Get-ChildItem -LiteralPath $Directory -Filter '*.json' -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne $script:LanguagesFileName } | Sort-Object Name) }
+            $hasJson = (Test-Path -LiteralPath $Directory) -and (@(& $profileFiles).Count -gt 0)
             if (-not $hasJson) { Save-BuiltInProfiles -Directory $Directory; Add-ProfileMessage 'INFO' "Profile files created from the built-in profiles: $Directory" }
-            foreach ($f in @(Get-ChildItem -LiteralPath $Directory -Filter '*.json' -File | Sort-Object Name)) {
+            foreach ($f in @(& $profileFiles)) {
                 try {
                     $obj = [System.IO.File]::ReadAllText($f.FullName) | ConvertFrom-Json -ErrorAction Stop
                     $p = ConvertTo-OsProfile -Data $obj -SourceFile $f.Name
@@ -340,6 +346,71 @@ function Import-OsProfiles {
     return $ordered
 }
 $script:OsDefinitions = Import-OsProfiles   # built-ins until a Profiles folder is loaded
+
+# ---------- language list (Languages tab, TODO step 10e) ----------
+function Get-BuiltInLanguageData {
+    # The languages offered on the Languages tab: Terry's Languages.json (repo root, 2026-09-26). Written to
+    # Profiles\Languages.json when that file is missing; the file then wins, so the list is edited there.
+    return @(
+        @{ language = 'Catalan (Spain)'; code = 'ca-es' }, @{ language = 'Czech (Czech Republic)'; code = 'cs-cz' },
+        @{ language = 'German (Germany)'; code = 'de-de' }, @{ language = 'English (United Kingdom)'; code = 'en-gb' },
+        @{ language = 'Spanish (Spain)'; code = 'es-es' }, @{ language = 'French (France)'; code = 'fr-fr' },
+        @{ language = 'Hungarian (Hungary)'; code = 'hu-hu' }, @{ language = 'Italian (Italy)'; code = 'it-it' },
+        @{ language = 'Japanese (Japan)'; code = 'ja-jp' }, @{ language = 'Korean (South Korea)'; code = 'ko-kr' },
+        @{ language = 'Polish (Poland)'; code = 'pl-pl' }, @{ language = 'Portuguese (Brazil)'; code = 'pt-br' },
+        @{ language = 'Portuguese (Portugal)'; code = 'pt-pt' }, @{ language = 'Romanian (Romania)'; code = 'ro-ro' },
+        @{ language = 'Russian (Russia)'; code = 'ru-ru' }, @{ language = 'Slovak (Slovakia)'; code = 'sk-sk' },
+        @{ language = 'Swedish (Sweden)'; code = 'sv-se' }, @{ language = 'Turkish (Turkey)'; code = 'tr-tr' },
+        @{ language = 'Chinese (Simplified, China)'; code = 'zh-cn' }, @{ language = 'Chinese (Traditional, Taiwan)'; code = 'zh-tw' }
+    )
+}
+function ConvertTo-LanguageList {
+    # Validates Languages.json content (an array of { "language": ..., "code": ... }) and returns one object per entry
+    # with Name, Code and Display ("German (Germany) - de-de"). Throws a plain-language message.
+    param($Data)
+    $out = [System.Collections.Generic.List[object]]::new()
+    $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($e in @($Data | Where-Object { $null -ne $_ })) {
+        $name = ([string](Get-ProfileValue $e 'language' '')).Trim()
+        $code = ([string](Get-ProfileValue $e 'code' '')).Trim().ToLowerInvariant()
+        if (-not $name -or -not $code) { throw "every entry needs a 'language' name and a 'code'." }
+        if ($code -notmatch '^[a-z]{2,3}-[a-z0-9]{2,4}$') { throw "'$code' ($name) is not a language code like de-de." }
+        if (-not $seen.Add($code)) { throw "'$code' is listed more than once." }
+        $out.Add([pscustomobject]@{ Name = $name; Code = $code; Display = "$name - $code" })
+    }
+    if ($out.Count -eq 0) { throw 'the list is empty.' }
+    return @($out)
+}
+function Save-BuiltInLanguages {
+    # Writes the built-in list in the same one-entry-per-line style as the repo's Languages.json.
+    param([Parameter(Mandatory)][string]$File)
+    Ensure-Directory (Split-Path $File -Parent)
+    $rows = @(Get-BuiltInLanguageData | ForEach-Object { '  { "language": ' + (ConvertTo-Json ([string]$_.language)) + ', "code": ' + (ConvertTo-Json ([string]$_.code)) + ' }' })
+    $nl = [Environment]::NewLine
+    [System.IO.File]::WriteAllText($File, ('[' + $nl + ($rows -join (',' + $nl)) + $nl + ']' + $nl), (New-Object System.Text.UTF8Encoding($false)))
+}
+function Import-LanguageList {
+    # Returns the Languages tab list from <Directory>\Languages.json, creating it from the built-in list when missing.
+    # A bad file is reported and the built-in list used instead - never a crash. Problems go to $script:ProfileMessages,
+    # so call this after Import-OsProfiles (which clears them) and before Write-ProfileMessages.
+    param([string]$Directory)
+    if ($Directory) {
+        $file = Join-Path $Directory $script:LanguagesFileName
+        try {
+            if (-not (Test-Path -LiteralPath $file)) { Save-BuiltInLanguages -File $file; Add-ProfileMessage 'INFO' "Language list created from the built-in list: $file" }
+            return ConvertTo-LanguageList -Data ([System.IO.File]::ReadAllText($file) | ConvertFrom-Json -ErrorAction Stop)
+        } catch { Add-ProfileMessage 'WARN' "Language list $file could not be used ($($_.Exception.Message)); using the built-in list." }
+    }
+    return ConvertTo-LanguageList -Data (Get-BuiltInLanguageData)
+}
+function Get-DefaultLanguageSelection {
+    # A profile's defaultLanguages split into the codes that are on the Languages tab list (to pre-select) and the ones
+    # that are not (reported, not selected).
+    param([pscustomobject]$Definition, [object[]]$LanguageList)
+    $codes = @($LanguageList | ForEach-Object { $_.Code })
+    $defaults = @($Definition.DefaultLanguages | Where-Object { $_ } | ForEach-Object { ([string]$_).ToLowerInvariant() })
+    return [pscustomobject]@{ Select = @($defaults | Where-Object { $codes -contains $_ }); Missing = @($defaults | Where-Object { $codes -notcontains $_ }) }
+}
 
 function Get-SupportStatus {
     param([Parameter(Mandatory)]$Definition, [datetime]$Now = (Get-Date))
@@ -1640,7 +1711,7 @@ function Invoke-MediaRefresh {
     <GroupBox Grid.Column="0" Header="Patch selection" Margin="0,0,10,0"><StackPanel Margin="12"><CheckBox x:Name="ChkSSU" Content="Servicing Stack Update (PATCHES\SSU)" IsChecked="True" Margin="0,5"/><CheckBox x:Name="ChkLCU" Content="Latest Cumulative Update (PATCHES\LCU)" IsChecked="True" Margin="0,5"/><CheckBox x:Name="ChkSafeOS" Content="Safe OS Dynamic Update (PATCHES\SAFEOSDU, used for WinRE)" IsChecked="True" Margin="0,5"/><CheckBox x:Name="ChkNetCU" Content=".NET Cumulative Update (PATCHES\NETCU)" IsChecked="True" Margin="0,5"/><CheckBox x:Name="ChkSetupDU" Content="Setup Dynamic Update (PATCHES\SETUPDU, used for refreshed media)" IsChecked="True" Margin="0,5"/></StackPanel></GroupBox>
     <GroupBox Grid.Column="1" Header="Optional content" Margin="10,0,0,0"><StackPanel Margin="12"><CheckBox x:Name="ChkNetFx3" Content="Enable .NET Framework 3.5 from OS ISO sources\sxs" IsChecked="False" Margin="0,5"/><TextBlock Text="Ticked patch types with an empty folder are logged and skipped, except LCU (and the SSU on legacy OSes), which stop the run so you never get an unpatched image by accident." TextWrapping="Wrap" Foreground="#555" Margin="0,16,0,0"/></StackPanel></GroupBox>
    </Grid></TabItem>
-   <TabItem Header="Languages"><Grid Margin="18"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions><TextBlock Text="Language packs, language features and fonts to add. Requires a Language Pack ISO and a Features on Demand ISO. Leave empty for English only. Defaults follow the selected operating system." TextWrapping="Wrap"/><ListBox x:Name="LanguageList" Grid.Row="1" SelectionMode="Multiple" Margin="0,12,0,0"><ListBoxItem Content="de-de"/><ListBoxItem Content="en-gb"/><ListBoxItem Content="es-es"/><ListBoxItem Content="fr-fr"/><ListBoxItem Content="it-it"/><ListBoxItem Content="ja-jp"/><ListBoxItem Content="ko-kr"/><ListBoxItem Content="pt-br"/><ListBoxItem Content="zh-cn"/><ListBoxItem Content="zh-tw"/></ListBox></Grid></TabItem>
+   <TabItem Header="Languages"><Grid Margin="18"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions><TextBlock Text="Language packs, language features and fonts to add to install.wim (WinRE and boot.wim stay English-only). Requires a Language Pack ISO and a Features on Demand ISO. Leave empty for English only. Defaults follow the selected operating system. The list comes from Profiles\Languages.json." TextWrapping="Wrap"/><ListBox x:Name="LanguageList" Grid.Row="1" SelectionMode="Multiple" Margin="0,12,0,0"/></Grid></TabItem>
    <TabItem Header="Log"><TextBox x:Name="LogBox" Margin="12" IsReadOnly="True" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12" Background="#111827" Foreground="#E5E7EB"/></TabItem>
   </TabControl>
   <Grid Grid.Row="2" Margin="0,14,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><TextBlock x:Name="Status" Text="Ready"/><ProgressBar x:Name="Progress" Height="18" Minimum="0" Maximum="100" Margin="0,5,14,0"/></StackPanel><Button x:Name="RunButton" Grid.Column="1" Content="Start refresh" Width="130" Height="38" Margin="0,0,8,0" Background="#0078D4" Foreground="White" FontWeight="SemiBold"/><Button x:Name="CancelButton" Grid.Column="2" Content="Cancel" Width="90" Height="38" IsEnabled="False"/></Grid>
@@ -1654,10 +1725,22 @@ foreach ($ctl in @('HeaderOs','HeaderPhase','RootText','OsCombo','ReloadProfiles
 }
 # Profiles: JSON files in a Profiles folder beside the script (or under LOCALAPPDATA when the script has no file path).
 $script:ProfilesDir = if ($PSScriptRoot) { Join-Path $PSScriptRoot 'Profiles' } else { Join-Path $env:LOCALAPPDATA 'MediaRefreshStudio\Profiles' }
+$script:LanguageOptions = @(Import-LanguageList)   # built-in list until the Profiles folder is loaded
+function Update-LanguageItems {
+    # One entry per Languages.json row, shown as "German (Germany) - de-de"; the code is kept in Tag and is what runs use.
+    $script:LanguageList.Items.Clear()
+    foreach ($l in @($script:LanguageOptions)) {
+        $li = New-Object System.Windows.Controls.ListBoxItem
+        $li.Content = $l.Display; $li.Tag = $l.Code
+        [void]$script:LanguageList.Items.Add($li)
+    }
+}
 function Set-DefaultLanguages {
     $def = $script:OsDefinitions[[string]$script:OsCombo.SelectedItem]
     if (-not $def) { return }
-    foreach ($item in $script:LanguageList.Items) { $item.IsSelected = (@($def.DefaultLanguages) -contains [string]$item.Content) }
+    $sel = Get-DefaultLanguageSelection -Definition $def -LanguageList $script:LanguageOptions
+    foreach ($item in $script:LanguageList.Items) { $item.IsSelected = (@($sel.Select) -contains [string]$item.Tag) }
+    if (@($sel.Missing).Count -gt 0) { Write-Log "Default language(s) $(@($sel.Missing) -join ', ') of $($def.Name) are not in $($script:LanguagesFileName) and were not selected." 'WARN' }
 }
 function Update-ProfileInfo {
     $def = $script:OsDefinitions[[string]$script:OsCombo.SelectedItem]
@@ -1675,13 +1758,15 @@ function Update-HeaderIdle {
 function Update-ProfileList {
     $previous = [string]$script:OsCombo.SelectedItem
     $script:OsDefinitions = Import-OsProfiles -Directory $script:ProfilesDir
+    $script:LanguageOptions = @(Import-LanguageList -Directory $script:ProfilesDir)
     Write-ProfileMessages
+    Update-LanguageItems
     $script:OsCombo.Items.Clear()
     foreach ($osName in $script:OsDefinitions.Keys) { [void]$script:OsCombo.Items.Add($osName) }
     $script:OsCombo.SelectedIndex = if ($previous -and $script:OsCombo.Items.Contains($previous)) { $script:OsCombo.Items.IndexOf($previous) } else { 0 }
 }
 function Get-UiOptions {
-    $langs = @(foreach ($item in $script:LanguageList.Items) { if ($item.IsSelected) { [string]$item.Content } })
+    $langs = @(foreach ($item in $script:LanguageList.Items) { if ($item.IsSelected) { [string]$item.Tag } })
     return [pscustomobject]@{
         OsName = [string]$script:OsCombo.SelectedItem; Root = [string]$script:RootText.Text
         PreflightOnly = [bool]$script:ChkPreflight.IsChecked; Install = [bool]$script:ChkInstall.IsChecked; Boot = [bool]$script:ChkBoot.IsChecked; WinRE = [bool]$script:ChkWinRE.IsChecked
