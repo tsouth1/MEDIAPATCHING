@@ -8,7 +8,7 @@ function Get-WindowsImage { [CmdletBinding()] param($ImagePath,$Index,[switch]$M
   return @(1..$script:ImageCount | ForEach-Object { [pscustomobject]@{ ImageIndex=$_; ImageName=$(if ($script:ImageCount -eq 1) {'Windows 10 Enterprise LTSC'} else {"Edition$_"}) } }) }
 $script:SourceNames = @('Windows 10 Enterprise LTSC')
 function Get-WindowsPackage { [CmdletBinding()] param($Path,$LogPath)
-  return @([pscustomobject]@{ PackageName='Package_for_RollupFix~31bf3856ad364e35~amd64~~17763.9121.1.9'; PackageState='Installed'; ReleaseType='Update' }) + $script:ExtraPkgs }
+  return @([pscustomobject]@{ PackageName='Package_for_RollupFix~31bf3856ad364e35~amd64~~17763.9121.1.9'; PackageState='Installed'; ReleaseType='Update' }) + $script:ExtraPkgs + @($script:MockImagePackages) }
 function Get-WindowsCapability { [CmdletBinding()] param($Path,$LogPath) return $script:Caps }
 function Dismount-DiskImage { [CmdletBinding()] param($ImagePath) Note "IsoDismount $(Split-Path $ImagePath -Leaf)" }
 $script:IsoMap = @{}

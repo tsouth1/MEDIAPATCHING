@@ -317,7 +317,8 @@ Check 'a downloaded file named for another architecture is removed and not repor
 Reset-Test
 function Add-WindowsPackage { [CmdletBinding()] param($Path, [Parameter(Mandatory)][ValidateNotNullOrEmpty()]$PackagePath, $LogPath)
     if ($PackagePath -like '*ndp48*') { throw 'Add-WindowsPackage failed. Error code = 0x800f081e. The specified package is not applicable to this image.' }
-    Note ("AddPkg $(Split-Path $PackagePath -Leaf) @ $(Split-Path $Path -Leaf)") }
+    Note ("AddPkg $(Split-Path $PackagePath -Leaf) @ $(Split-Path $Path -Leaf)")
+    $script:MockImagePackages.Add([pscustomobject]@{ PackageName = "Package_for_$(Split-Path $PackagePath -Leaf)"; PackageState = 'Installed' }) }
 $svcDir = Join-Path $base 'svc_netcu'
 New-File (Join-Path $svcDir 'windows10.0-kb5126043-x64.msu'); New-File (Join-Path $svcDir 'windows10.0-kb5126048-x64-ndp48.msu')
 $pkgs = @(Get-ChildItem $svcDir -File | Sort-Object Name)
@@ -325,6 +326,19 @@ $threw = $false; try { Add-Packages -MountPath (Join-Path $base 'mnt') -Packages
 Check '-SkipNotApplicable: the not-applicable 4.8 part is skipped with a WARN, the 4.7.2 part still applied' (-not $threw -and ($script:Calls -match '^AddPkg windows10.0-kb5126043-x64.msu') -and ($script:LogLines -match 'Skipped \.NET CU windows10.0-kb5126048-x64-ndp48.msu: not applicable'))
 $threw = $false; try { Add-Packages -MountPath (Join-Path $base 'mnt') -Packages $pkgs -Target 'install.wim index 1' -Label 'LCU (final)' } catch { $threw = $true }
 Check 'without -SkipNotApplicable (every other class) a not-applicable package still fails the run' $threw
+# What real DISM did on Terry's LTSC 2019 run (2026-09-25): the .MSU returned success, but CBS logged 0x800f081e and
+# installed nothing. The package list is unchanged, so the 4.8 part must be reported as skipped, not added.
+function Add-WindowsPackage { [CmdletBinding()] param($Path, [Parameter(Mandatory)][ValidateNotNullOrEmpty()]$PackagePath, $LogPath)
+    Note ("AddPkg $(Split-Path $PackagePath -Leaf) @ $(Split-Path $Path -Leaf)")
+    if ($PackagePath -notlike '*ndp48*') { $script:MockImagePackages.Add([pscustomobject]@{ PackageName = "Package_for_DotNetRollup~$(Split-Path $PackagePath -Leaf)"; PackageState = 'Installed' }) } }
+Reset-Test; $script:LogLines.Clear(); $script:ChangeEvents.Clear()
+$e14 = ''; $threw = $false; try { Add-Packages -MountPath (Join-Path $base 'mnt') -Packages $pkgs -Target 'install.wim index 1' -Label '.NET CU' -SkipNotApplicable } catch { $threw = $true; $e14 = $_.Exception.Message }
+$ev48 = @($script:ChangeEvents | Where-Object { $_.Kb -eq 'KB5126048' }); $ev472 = @($script:ChangeEvents | Where-Object { $_.Kb -eq 'KB5126043' })
+Check 'a .MSU that DISM silently skips (package list unchanged) is logged as skipped with a WARN' (-not $threw -and ($script:LogLines -match 'WARN.*Skipped \.NET CU windows10.0-kb5126048-x64-ndp48.msu: DISM found it not applicable')) $e14
+Check '... and recorded as skipped in the change log, while the 4.7.2 part is recorded as added' ($ev48.Count -eq 1 -and $ev48[0].Detail -like '*skipped, not applicable*' -and $ev472.Count -eq 1 -and $ev472[0].Detail -eq '.NET CU')
+Reset-Test; $script:LogLines.Clear()
+$null = Add-Packages -MountPath (Join-Path $base 'mnt') -Packages @($pkgs[1]) -Target 'install.wim index 1' -Label 'LCU (final)'
+Check 'classes without -SkipNotApplicable are not compared (no extra package-list reads, no skip WARN)' (-not ($script:LogLines -match 'Skipped'))
 
 Write-Host "`n=== A9 each KB named once in the confirm dialog / log, and each pick downloaded once (Terry, 2026-09-24) ==="
 Check 'Format-CatalogPick: a title that already ends in its KB is left as it is' ((Format-CatalogPick -Title $t64 -Kb 'KB5126144') -eq $t64)

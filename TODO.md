@@ -6,9 +6,9 @@ Last updated: 2026-09-24. The list now tracks one script only, v2.4. Older versi
 
 Where v2.4 stands:
 
-- **Mock test kit:** 7 suites, 286 checks, all passing on Windows PowerShell 5.1 and PowerShell 7.6 (2026-09-25).
+- **Mock test kit:** 7 suites, 292 checks, all passing on Windows PowerShell 5.1 and PowerShell 7.6 (2026-09-26).
 - **Real Microsoft Update Catalog:** every built-in rule for all five profiles picks the right entry from the live catalog (2026-09-24, step 2A), confirmed by GUI dry runs of all five OSes on the build machine the same evening. Real GUI downloads (LTSC 2019, LTSC 2021 KMS, Win11 24H2) the same evening found one pruning bug, fixed (step 2A).
-- **Real images and real DISM:** two complete real v2.4 servicing runs, both Win11 24H2 Enterprise with gate PASSED: 2026-09-23 (LCU only in the folder) and **2026-09-25 09:44-11:04** (`LOGS.7z`: download + preflight + full run, with the LCU checkpoint in the folder, Safe OS DU into WinRE and Setup DU into the media). The other OSes have not been serviced on v2.4 yet (a v2.2 run of IoT LTSC 2021 finished with 0 verify issues on 2026-09-21, but v2.3/v2.4 changed the servicing code).
+- **Real images and real DISM:** three complete real v2.4 servicing runs, all with gate PASSED: Win11 24H2 Enterprise on 2026-09-23 and 2026-09-25 (English only), and **LTSC 2019 with ten languages on 2026-09-25 16:15-20:30** (`LOGS\`: preflight x2 + full run; WinRE was switched off). LTSC 2021 KMS / IoT and Server 2022 have not been serviced on v2.4 yet (a v2.2 run of IoT LTSC 2021 finished with 0 verify issues on 2026-09-21, but v2.3/v2.4 changed the servicing code).
 
 ## Index
 
@@ -79,7 +79,7 @@ Run with the regenerated profiles (`Profiles_corrected_2026-09-24.zip`, written 
 
 | OS folder | Needed | Why |
 |---|---|---|
-| Win10_Enterprise_LTSC_2019 | 1809 Language Pack ISO (LP ISO, not the FOD ISO) | Only FOD part 1 is present, so the ten languages cannot be added. |
+| Win10_Enterprise_LTSC_2019 | ~~1809 Language Pack ISO~~ **done 2026-09-25**: `SW_DVD9_NTRL_Win_10_1809_32_64_ARM64_MultiLang_LangPackAll_LIP_X21-91305.ISO` | The first attempt (`MediaRefresh_20260925_143636.log`) stopped because only the FOD ISOs were present. FOD ISOs carry `Microsoft-Windows-LanguageFeatures-*` capability cabs, which add spelling, fonts, OCR and speech on top of a language; the display language itself comes only from `Microsoft-Windows-Client-Language-Pack_x64_<lang>.cab` on the Language Pack ISO. |
 | Win10_Enterprise_LTSC_2021_KMS | Copy the `LangPackAll` (2004 family) ISO into this folder | It currently has only the OS ISO and FOD part 1. |
 | Win10_IOT_Enterprise_LTSC_2021 | FOD part 1 ISO, **or** confirmation that the LangPackAll ISO already carries `Microsoft-Windows-LanguageFeatures-*` cabs | Check with `Get-ChildItem X:\ -Recurse -Filter 'Microsoft-Windows-LanguageFeatures-*'` on the mounted ISO. |
 | Win11 24H2, Server 2022 | Fresh Microsoft ISOs each cycle | English only, no LP/FOD ISOs needed. |
@@ -92,22 +92,22 @@ Run with the regenerated profiles (`Profiles_corrected_2026-09-24.zip`, written 
 **Before any run**
 
 - `Unblock-File` the script and run it from elevated Windows PowerShell 5.1.
-- **Antivirus exclusion: check it is really in place.** The v2.2 IoT 2021 run took about 3h53m. A few steps took far longer than the rest (LCU pass 1 ~46 min, LCU final ~38 min, one .NET CU ~29 min, cleanup ~24 min, against ~5-7 min per language pack). Its DISM log has 30,000+ benign `Error CSI ... Matching binary ... missing for component ... dualModeDriver` entries (Hyper-V driver components). Both point to real-time scanning fighting DISM. Confirm the exclusion covers the MediaRefresh folder including each OS's `MOUNT` subfolder, then compare the timings on the next run.
+- **Antivirus exclusion: check it is really in place.** The v2.2 IoT 2021 run took about 3h53m. A few steps took far longer than the rest (LCU pass 1 ~46 min, LCU final ~38 min, one .NET CU ~29 min, cleanup ~24 min, against ~5-7 min per language pack). Its DISM log has 30,000+ benign `Error CSI ... Matching binary ... missing for component ... dualModeDriver` entries (Hyper-V driver components). Both point to real-time scanning fighting DISM. Confirm the exclusion covers the MediaRefresh folder including each OS's `MOUNT` subfolder, then compare the timings on the next run. **Update 2026-09-25:** the LTSC 2019 ten-language run spent 1 h 40 min in component cleanup alone - check the exclusion covers `F:\mediaRefresh\<OS>\MOUNT` before the Server 2022 runs (four indexes).
 - Tens of GB free. v2.4 checks this itself and archives the previous `NEWWIM` output, so nothing needs renaming by hand.
 - Fill `PATCHES` with "Download patches..." (after 2A) or by hand; the SSU always goes into `PATCHES\SSU` by hand.
 
 **Runs, in order** (full test plan in `MediaRefresh_Review_and_Roadmap.md`, section 0)
 
-1. [ ] Preflight only, on every OS folder. Check the ISO role lines, patch counts, the language pack check and the `Detected indexes` / `Selected client image index` lines.
+1. [ ] Preflight only, on every OS folder. Check the ISO role lines, patch counts, the language pack check and the `Detected indexes` / `Selected client image index` lines. Done so far: Win11 24H2 (2026-09-25) and LTSC 2019 (2026-09-25, all 10 language packs located).
 2. [ ] First v2.4 servicing run: **LTSC 2021 KMS, de-de + ja-jp only**, WinRE on, NetFx3 on, Verify on (about 1.5 hours).
 3. [ ] LTSC 2021 KMS with all ten languages.
 4. [ ] Server 2022 (English only, four indexes). Confirm WinRE is serviced once and the same winre.wim is reused for every index.
-5. [ ] LTSC 2019. The log should show the .NET CU part KB5126043 added and KB5126048 (the 4.8 part) skipped with a WARN as not applicable. That skip is inferred from the 0x800f081e behaviour and has not yet been seen in a real DISM log.
+5. [x] LTSC 2019 - **done 2026-09-25 16:15-20:30 on v2.4, ten languages, gate PASSED**, but with **WinRE off** (so WinRE with languages is still untested) and no Setup DU / media. SSU KB5005112, LCU pass 1 KB5129238 (29 min), 10 language packs (5-6 min each) each with Basic, OCR, Handwriting, TextToSpeech and Speech, fonts Jpan / Kore / Hans / Hant, LCU final (14 min), **component cleanup 1 h 40 min** (18:06-19:45; 24 min on the v2.2 IoT run, 6 min on Win11 - see the antivirus note), NetFX3, .NET CU. Verify: build 10.0.17763.9247, all 10 language packs present, 58 language capabilities, 0 issues. **.NET CU pair confirmed on real DISM:** KB5126043 (3.5 + 4.7.2) applied; KB5126048 (4.8) was rejected by CBS as not applicable (`0x800f081e`, `Skipping package ... current: Absent`) because the image has 4.7.2 - but `Add-WindowsPackage` returned success for the .MSU, so the run logged no skip and the change log listed the 4.8 part as added. **Fixed 2026-09-26:** where skipping is allowed (.NET CU), the image's package list is compared before and after each file; no change is logged as a WARN and recorded as "skipped, not applicable". The build machine was still on a copy without the 2026-09-25 change-log fixes (all Section A rows at 20:30:22, a `Deleted` row in Section B) - pull `main` before the next run.
 6. [ ] IoT LTSC 2021 (repeat on v2.4).
 7. [x] Win11 24H2 (English only; WinRE, NetFX3, Verify and media on) - **done 2026-09-23 on v2.4, gate PASSED** (see "Where v2.4 stands"). The LCU folder held only KB5129195 then, so the checkpoint question (2A) did not come up; since the 2026-09-24 download it also holds KB5043080; the LCU step now installs only KB5129195 and leaves the checkpoint to DISM (fixed 2026-09-25), and the next Win11 run is the first real test of that. Timing: WinRE about 3 min, LCU about 33 min, .NET CU about 21 min, whole run 82 min. DISM log errors were the usual noise (0x80070490 progress, TurboStack hydration, "failed to get hash info").
    - **Second Win11 run, 2026-09-25 (after the re-download):** download 09:40 (LCU entry downloaded KB5043080 + KB5129195, both kept; .NET KB5126052, Safe OS KB5125758, Setup DU KB5127216), preflight 09:44, full run 09:44-11:04 (80 min): WinRE with LCU + Safe OS DU (WinRE now 26100.9545) about 4.5 min, LCU on install.wim about 31 min, cleanup about 6 min, .NET CU about 18 min, export, verify (0 issues, gate PASSED), media folder with the Setup DU expanded, change log. English only; the new `SW_DVD9_Win_11_24H2_25H2_x64_MultiLang_LangPackAll_LIP_LoF` ISO was detected as the Language Pack / FOD source.
 
-- **WinRE with languages is the highest-risk path** and has never run in any log. Run it once with WinRE on and once off to isolate it, and record the WinRE size before and after.
+- **WinRE with languages is the highest-risk path** and has never run in any log. Run it once with WinRE on and once off to isolate it, and record the WinRE size before and after. Still untested after the 2026-09-25 LTSC 2019 run (WinRE was unticked); run LTSC 2021 KMS de-de + ja-jp with WinRE ticked next.
 - On a real console, confirm that clicking in the console no longer pauses the run (Quick Edit fix) and that the window stays responsive during mount and patch.
 - After each run, send `MediaRefresh_*.log`, `DISM_*.log` and the `ChangeLog_*` files from `LOGS`. The `VERIFY` lines are the evidence that the LCU and languages are really in the image.
 
@@ -140,6 +140,8 @@ The script only logs a warning when the host DISM is older than the image. Servi
 **First data point (2026-09-23):** the Server 2022 host's DISM 10.0.20348.2849 serviced the Win11 24H2 image (26100.9168 -> 26100.9457) with no failure - only the expected "host DISM is older" WARN, and the gate PASSED. One clean run does not prove it is safe (language packs and FODs were not part of it), so keep the decision open until a Win11 run with languages.
 
 **Second data point (2026-09-25):** the same host DISM serviced Win11 24H2 again, this time with the LCU checkpoint in the folder, Safe OS DU into WinRE and the Setup DU into the media - no failure, gate PASSED. Still no run with languages.
+
+**Third data point (2026-09-25):** the same host DISM serviced LTSC 2019 (17763) with ten languages and their FODs - no failure. That is an older image than the host, so it says nothing about the 26100 case; Win11 with languages is still the missing test.
 
 <a id="s6"></a>
 ## 6. Upgrade-package media readiness and validation round 2
@@ -347,6 +349,7 @@ All three read the same instrumentation: a `Set-Phase` call at each stage bounda
 - v2.2: step 1. First real run (IoT LTSC 2021, 2026-09-21): completed, 0 verify issues, slow (see 2B antivirus note).
 - v2.3: step 3.
 - v2.4: step 5, then fixed after Terry's real-catalog tests on 2026-09-23 (architecture from titles, multi-file entries, combined 1809 .NET CU, LCU title filters, not-applicable .NET parts skipped, empty-result crash, `productFilter` / `productExclude`).
+- 2026-09-26: LTSC 2019 ten-language run recorded (gate PASSED, WinRE off). .NET CU parts that DISM silently finds not applicable are now logged and recorded as skipped (package list compared before/after); a FOD ISO without language features (1809 FOD part 2) is recognised as an extra FOD source instead of "not recognised". Test kit 292 checks.
 - 2026-09-25: second real Win11 24H2 run (gate PASSED) confirms the LCU/checkpoint fix on real DISM; change log fixed (per-step times in Section A, Setup DU recorded, WindowsApps housekeeping folders dropped from Section B); unpassed `[string[]]` parameters given an empty default (Windows PowerShell 5.1 throws on `@($x).Count` for an unbound typed array under StrictMode). Test kit 286 checks.
 - 2026-09-25: LCU step installs only the target LCU and leaves checkpoint(s) in the folder for DISM (Microsoft's method); open point added on the LCU not applying to WinRE. Test kit 282 checks.
 - 2026-09-24: out-of-band LCUs kept as the pick (decision); dialog and log show release date, classification and Patch Tuesday / out-of-band for the LCU. First real v2.4 servicing run recorded (Win11 24H2, 2026-09-23, gate PASSED). Test kit 275 checks.

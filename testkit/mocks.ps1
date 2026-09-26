@@ -23,13 +23,16 @@ function Get-WindowsImage { [CmdletBinding()] param($ImagePath,$Index,[switch]$M
   if ($Mounted) { return $script:MountedList }
   if ($Index) { return [pscustomobject]@{ ImageIndex=$Index; ImageName="Img$Index"; Version='10.0.17763.9121' } }
   return @([pscustomobject]@{ ImageIndex=1; ImageName='Img1' }) }
+# Each added package shows up in Get-WindowsPackage, as on a real image (Add-Packages compares the list before and after).
+$script:MockImagePackages = [System.Collections.Generic.List[object]]::new()
 function Add-WindowsPackage { [CmdletBinding()] param($Path,[Parameter(Mandatory)][ValidateNotNullOrEmpty()]$PackagePath,$LogPath)
-  Note ("AddPkg $(Split-Path $PackagePath -Leaf) @ $(Split-Path $Path -Leaf)") }
+  Note ("AddPkg $(Split-Path $PackagePath -Leaf) @ $(Split-Path $Path -Leaf)")
+  $script:MockImagePackages.Add([pscustomobject]@{ PackageName = "Package_for_$(Split-Path $PackagePath -Leaf)~$(Split-Path $Path -Leaf)"; PackageState = 'Installed'; ReleaseType = 'Update' }) }
 function Add-WindowsCapability { [CmdletBinding()] param($Name,$Path,$Source,[switch]$LimitAccess,$LogPath) Note "AddCap $Name" }
 function Enable-WindowsOptionalFeature { [CmdletBinding()] param($Path,$FeatureName,[switch]$All,$Source,[switch]$LimitAccess,$LogPath) Note "EnableFeature $FeatureName" }
 function Export-WindowsImage { [CmdletBinding()] param($SourceImagePath,$SourceIndex,$DestinationImagePath,$DestinationName,$CompressionType,[switch]$CheckIntegrity,$LogPath)
   Note "Export -> $(Split-Path $DestinationImagePath -Leaf)"; Set-Content $DestinationImagePath 'x' }
-function Get-WindowsPackage { [CmdletBinding()] param($Path,$LogPath) return @() }
+function Get-WindowsPackage { [CmdletBinding()] param($Path,$LogPath) return @($script:MockImagePackages) }
 function Get-WindowsOptionalFeature { [CmdletBinding()] param($Path,[switch]$All,$LogPath) return $script:OptionalFeatures }
 function Get-AppxProvisionedPackage { [CmdletBinding()] param($Path) return $script:ProvisionedAppx }
 $script:OptionalFeatures = @()

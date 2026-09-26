@@ -60,6 +60,11 @@
                the log was written; the Setup DU expanded into the media is listed; Windows' housekeeping folders under
                WindowsApps ("Deleted", "Merged") are no longer listed as staged appx packages. [string[]] parameters that
                are counted default to an empty array (Windows PowerShell 5.1 throws on @($x).Count when one is unbound).
+      * Fixed (Terry's 2026-09-25 LTSC 2019 run): a .NET CU part that DISM finds not applicable while still returning
+               success for the .MSU (the 4.8 part on a 4.7.2 image) was logged and recorded as added; the package list
+               is now compared before and after, and an unchanged list is logged as a WARN and recorded as skipped.
+      * Fixed: a Features on Demand ISO without language features (1809 "FOD part 2") is recognised as an extra FOD
+               source by its metadata\*CompDB* catalogue or package-identity cabs, instead of "not recognised".
     Version 2.2.0 (draft - test against non-production images first).
       * Added: OS profiles are JSON files in a Profiles folder beside the script (created from the built-in profiles the first
                time the folder is empty). Edit a file and press "Reload profiles"; a bad file is reported and skipped.
@@ -868,6 +873,11 @@ function Test-PackageSet {
     if ($DoWinRe -and $Enabled.SafeOS -and @($Packages.SafeOS).Count -eq 0) { Write-Log 'WinRE servicing is on but PATCHES\SAFEOSDU is empty; WinRE will not get the Safe OS update.' 'WARN' }
     if ($BuildMedia -and $Enabled.SetupDU -and @($Packages.SetupDU).Count -eq 0) { Write-Log 'Refreshed media is requested but PATCHES\SETUPDU is empty; Setup files will not be updated.' 'WARN' }
 }
+function Get-PackageFingerprint {
+    # One string for the mounted image's packages and their states, to tell whether an Add-WindowsPackage changed anything.
+    param([string]$MountPath)
+    return ((@(Get-WindowsPackage -Path $MountPath -ErrorAction Stop) | ForEach-Object { "$($_.PackageName)|$($_.PackageState)" } | Sort-Object) -join "`n")
+}
 function Add-Packages {
     param(
         [Parameter(Mandatory)][string]$MountPath,
@@ -884,8 +894,17 @@ function Add-Packages {
         Assert-NotCancelled
         Write-Log "Adding $Label $($pkg.FullName) to $Target"
         try {
+            # For a .MSU, DISM can decide "not applicable" (0x800f081e) internally and still return success - Terry's
+            # LTSC 2019 run (2026-09-25) logged the .NET 4.8 part as added although DISM skipped it. So where skipping is
+            # allowed, the image's package list is compared before and after: no change means nothing was installed.
+            $before = if ($SkipNotApplicable) { Get-PackageFingerprint $MountPath } else { $null }
             Add-WindowsPackage -Path $MountPath -PackagePath $pkg.FullName @dl -ErrorAction Stop | Out-Null
             $pkgName = Split-Path $pkg.FullName -Leaf
+            if ($null -ne $before -and (Get-PackageFingerprint $MountPath) -eq $before) {
+                Write-Log "Skipped $Label ${pkgName}: DISM found it not applicable to $Target and installed nothing (the image's package list is unchanged)." 'WARN'
+                Add-ChangeEvent -Category (Get-EventCategory $Label) -Item $pkgName -Target $Target -Kb (Get-KbFromName $pkgName) -Detail "$Label - skipped, not applicable to this image"
+                continue
+            }
             Add-ChangeEvent -Category (Get-EventCategory $Label) -Item $pkgName -Target $Target -Kb (Get-KbFromName $pkgName) -Detail $Label
         }
         catch {
@@ -927,8 +946,12 @@ function Get-IsoRoleMap {
         $isLp = $false; $isFod = $false
         if (-not $isOs) {
             $isLp = [bool](Get-ChildItem -LiteralPath $root -Filter 'Microsoft-Windows-*-Language-Pack_x64_*.cab' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1)
+            # A FOD ISO without language features (1809 "FOD part 2") still carries DISM's FOD catalogue (metadata\*CompDB*)
+            # and package-identity cabs (..~31bf3856ad364e35~..); it is then an extra capability source, not "unrecognised".
             $isFod = (Test-Path -LiteralPath (Join-Path $root 'LanguagesAndOptionalFeatures')) -or
-                     [bool](Get-ChildItem -LiteralPath $root -Filter 'Microsoft-Windows-LanguageFeatures-*.cab' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1)
+                     [bool](Get-ChildItem -LiteralPath $root -Filter 'Microsoft-Windows-LanguageFeatures-*.cab' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1) -or
+                     [bool](Get-ChildItem -LiteralPath (Join-Path $root 'metadata') -Filter '*CompDB*' -File -ErrorAction SilentlyContinue | Select-Object -First 1) -or
+                     [bool](Get-ChildItem -LiteralPath $root -Filter '*~31bf3856ad364e35~*.cab' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1)
         }
         if ($isOs)  { $os  += $m }
         if ($isLp)  { $lp  += $m }
