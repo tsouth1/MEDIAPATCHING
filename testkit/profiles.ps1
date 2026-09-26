@@ -198,4 +198,32 @@ Check 'every built-in profile default is on the list (en-gb and zh-tw added 2026
 $s2 = Get-DefaultLanguageSelection -Definition ([pscustomobject]@{ Name = 'X'; DefaultLanguages = @('de-de', 'en-us') }) -LanguageList $builtLangs
 Check 'a default that is not on the list is reported and not selected' ((@($s2.Select) -join ',') -eq 'de-de' -and (@($s2.Missing) -join ',') -eq 'en-us')
 
+Write-Host "`n=== P11 saved settings per OS in Settings\<folder>.json (TODO step 10c) ==="
+$setDir = Join-Path $tmp 'Settings'
+Check 'an OS without saved settings reads as none' ($null -eq (Read-OsSettings -Directory $setDir -Definition $kms -LanguageList $builtLangs))
+$optsIn = @{ Preflight = $false; Install = $true; Boot = $true; WinRE = $false; Verify = $true; BuildMedia = $false; BuildIso = $false; SSU = $true; LCU = $true; SafeOS = $false; NetCU = $true; SetupDU = $false; NetFx3 = $true; Bogus = $true }
+$sf = Save-OsSettings -Directory $setDir -Definition $kms -Options $optsIn -Languages @('de-de', 'JA-JP')
+Check 'settings are saved to Settings\<profile folder>.json, without a BOM' ((Split-Path $sf -Leaf) -eq 'Win10_Enterprise_LTSC_2021_KMS.json' -and [System.IO.File]::ReadAllBytes($sf)[0] -eq [byte][char]'{')
+$rs = Read-OsSettings -Directory $setDir -Definition $kms -LanguageList $builtLangs
+$optsOk = @($script:SettingOptionNames | Where-Object { $rs.Options[$_] -ne $optsIn[$_] }).Count -eq 0
+Check 'save then load returns the same options and languages (codes lower-cased, unknown option names dropped)' ($optsOk -and -not $rs.Options.ContainsKey('Bogus') -and (@($rs.Languages) -join ',') -eq 'de-de,ja-jp')
+$null = Save-OsSettings -Directory $setDir -Definition $kms -Options @{ LCU = $true } -Languages @()
+Check 'saving no languages loads as none (English only), not as the defaults' (@((Read-OsSettings -Directory $setDir -Definition $kms -LanguageList $builtLangs).Languages).Count -eq 0)
+$null = Save-OsSettings -Directory $setDir -Definition $kms -Options $optsIn -Languages @('de-de', 'cy-gb')
+$rs2 = Read-OsSettings -Directory $setDir -Definition $kms -LanguageList $builtLangs
+Check 'a saved language no longer in Languages.json is reported, not selected' ((@($rs2.Languages) -join ',') -eq 'de-de' -and (@($rs2.MissingLanguages) -join ',') -eq 'cy-gb')
+foreach ($bad in @('not json', '{ "languages": [] }', '{ "options": { "LCU": "yes" } }')) {
+    [System.IO.File]::WriteAllText($sf, $bad); $script:LogLines.Clear()
+    Check "an unusable settings file is ignored with a WARN: $bad" ($null -eq (Read-OsSettings -Directory $setDir -Definition $kms -LanguageList $builtLangs) -and [bool]($script:LogLines -match 'WARN.*Saved settings .* could not be used'))
+}
+Check 'Remove-OsSettings deletes the file, then reports there is none' ((Remove-OsSettings -Directory $setDir -Definition $kms) -and -not (Test-Path $sf) -and -not (Remove-OsSettings -Directory $setDir -Definition $kms))
+Check 'no saved repository root reads as empty' ((Read-GeneralSettings -Directory $setDir) -eq '')
+Save-GeneralSettings -Directory $setDir -Root 'G:\mediaRefresh'
+Check 'the repository root is saved in Settings\General.json and read back' ((Read-GeneralSettings -Directory $setDir) -eq 'G:\mediaRefresh' -and (Test-Path (Join-Path $setDir 'General.json')))
+# Regenerating the profiles (delete Profiles\ and reload, the 2026-09-24 fix) must not touch saved settings
+$regenProf = Join-Path $tmp 'regen\Profiles'; $regenSet = Join-Path $tmp 'regen\Settings'
+$null = Import-OsProfiles -Directory $regenProf; $null = Save-OsSettings -Directory $regenSet -Definition $kms -Options $optsIn -Languages @('fr-fr')
+Remove-Item -Recurse -Force $regenProf; $null = Import-OsProfiles -Directory $regenProf
+Check 'regenerating the Profiles folder leaves the saved settings in place' ((@((Read-OsSettings -Directory $regenSet -Definition $kms -LanguageList $builtLangs).Languages) -join ',') -eq 'fr-fr')
+
 Write-Host "`nRESULT: $pass passed, $fail failed"

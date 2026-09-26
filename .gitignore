@@ -41,4 +41,5 @@ testkit/e2e/
 testkit/ptest/
 testkit/rt/
 testkit/tst/
+testkit/tst_settings/
 testkit/engine_only.ps1

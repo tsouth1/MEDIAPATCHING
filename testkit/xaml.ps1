@@ -48,5 +48,36 @@ if ($wpf) {
     $script:OsDefinitions['Windows 10 Enterprise LTSC 2021 (KMS)'].DefaultLanguages = @('de-de', 'en-us'); $script:WarnLines.Clear()
     Set-DefaultLanguages
     Check 'WPF: a profile default not in Languages.json is logged and not selected' ((@($script:LanguageList.Items | Where-Object { $_.IsSelected } | ForEach-Object { [string]$_.Tag }) -join ',') -eq 'de-de' -and [bool]($script:WarnLines -match 'WARN.*en-us.*not in Languages.json'))
+
+    # "Save settings" / "Reset to defaults" (step 10c) on the real window's controls, so the default ticks are the real ones
+    $win = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $x))
+    foreach ($n in $script:SettingOptionNames) { Set-Variable -Name "Chk$n" -Scope Script -Value $win.FindName("Chk$n") }
+    $script:RootText = $win.FindName('RootText'); $script:LanguageList = $win.FindName('LanguageList')
+    Check 'the Save settings and Reset to defaults buttons are in the window' ($null -ne $win.FindName('SaveSettingsButton') -and $null -ne $win.FindName('ResetSettingsButton'))
+    foreach ($fn in 'Set-OsSettings', 'Get-SelectedSettings', 'Save-CurrentOsSettings', 'Reset-CurrentOsSettings') {
+        $fm = [regex]::Match($src, "(?s)function $fn \{.*?\r?\n\}\r?\n"); Invoke-Expression $fm.Value
+    }
+    $script:SettingsDir = Join-Path $PWD 'tst_settings'; if (Test-Path $script:SettingsDir) { Remove-Item -Recurse -Force $script:SettingsDir }
+    $script:DefaultChecks = @{}; foreach ($n in $script:SettingOptionNames) { $script:DefaultChecks[$n] = [bool](Get-Variable -Name "Chk$n" -Scope Script -ValueOnly).IsChecked }
+    $script:OsDefinitions = Import-OsProfiles
+    Update-LanguageItems
+    $ticks = { ($script:SettingOptionNames | ForEach-Object { "$_=$([bool](Get-Variable -Name "Chk$_" -Scope Script -ValueOnly).IsChecked)" }) -join ',' }
+    $picked = { (@($script:LanguageList.Items | Where-Object { $_.IsSelected } | ForEach-Object { [string]$_.Tag }) -join ',') }
+    $defaultTicks = & $ticks
+    $script:OsCombo.SelectedItem = 'Windows 10 Enterprise LTSC 2021 (KMS)'; Set-OsSettings
+    Check 'WPF: an OS without saved settings gets the window defaults and its profile languages' ((& $ticks) -eq $defaultTicks -and (& $picked) -eq 'de-de,en-gb,es-es,fr-fr,it-it,ja-jp,ko-kr,pt-br,zh-cn,zh-tw')
+    $script:ChkBoot.IsChecked = -not $script:ChkBoot.IsChecked; $script:ChkWinRE.IsChecked = -not $script:ChkWinRE.IsChecked
+    foreach ($item in $script:LanguageList.Items) { $item.IsSelected = @('de-de', 'ja-jp') -contains [string]$item.Tag }
+    $script:RootText.Text = 'G:\mediaRefresh'
+    $changedTicks = & $ticks
+    $savedFile = Save-CurrentOsSettings
+    Check 'WPF: Save settings writes Settings\Win10_Enterprise_LTSC_2021_KMS.json and General.json' ((Split-Path $savedFile -Leaf) -eq 'Win10_Enterprise_LTSC_2021_KMS.json' -and (Read-GeneralSettings -Directory $script:SettingsDir) -eq 'G:\mediaRefresh')
+    $script:OsCombo.SelectedItem = 'Windows 11 Enterprise 24H2'; Set-OsSettings
+    Check 'WPF: switching to another OS without saved settings restores the defaults' ((& $ticks) -eq $defaultTicks -and (& $picked) -eq '')
+    $script:OsCombo.SelectedItem = 'Windows 10 Enterprise LTSC 2021 (KMS)'; Set-OsSettings
+    Check 'WPF: switching back loads the saved ticks and languages for that OS' ((& $ticks) -eq $changedTicks -and (& $picked) -eq 'de-de,ja-jp') "$(& $ticks) | $(& $picked)"
+    Reset-CurrentOsSettings
+    Check 'WPF: Reset to defaults deletes the OS''s settings file and restores the defaults' (-not (Test-Path $savedFile) -and (& $ticks) -eq $defaultTicks -and (& $picked) -eq 'de-de,en-gb,es-es,fr-fr,it-it,ja-jp,ko-kr,pt-br,zh-cn,zh-tw')
+    $win.Close()
 }
 Write-Host "`nRESULT: $pass passed, $fail failed"

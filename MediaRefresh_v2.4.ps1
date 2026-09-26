@@ -71,6 +71,9 @@
       * Changed (Terry, 2026-09-26): the Languages tab lists Profiles\Languages.json (created from the built-in copy
                of Terry's list when missing; a bad file falls back to the built-in list) as "full name - code"; runs,
                saved choices and profile defaults use the code. A profile default not on the list is logged, not selected.
+      * Added (Terry, 2026-09-27): "Save settings" and "Reset to defaults" buttons. The selected OS's checkboxes and
+               languages are saved to Settings\<profile folder>.json (repository root to Settings\General.json), beside
+               Profiles\, and applied whenever that OS is selected; an OS without saved settings gets the defaults.
     Version 2.2.0 (draft - test against non-production images first).
       * Added: OS profiles are JSON files in a Profiles folder beside the script (created from the built-in profiles the first
                time the folder is empty). Edit a file and press "Reload profiles"; a bad file is reported and skipped.
@@ -402,6 +405,77 @@ function Import-LanguageList {
         } catch { Add-ProfileMessage 'WARN' "Language list $file could not be used ($($_.Exception.Message)); using the built-in list." }
     }
     return ConvertTo-LanguageList -Data (Get-BuiltInLanguageData)
+}
+# ---------- saved GUI settings per OS (TODO step 10c) ----------
+# Settings\<profile folder>.json holds one OS's checkboxes and ticked languages; Settings\General.json the repository
+# root. Kept apart from Profiles\ on purpose: profile files get regenerated, which must not wipe saved choices.
+$script:SettingOptionNames = @('Preflight', 'Install', 'Boot', 'WinRE', 'Verify', 'BuildMedia', 'BuildIso', 'SSU', 'LCU', 'SafeOS', 'NetCU', 'SetupDU', 'NetFx3')
+function Get-OsSettingsFile {
+    param([Parameter(Mandatory)][string]$Directory, [Parameter(Mandatory)][pscustomobject]$Definition)
+    return (Join-Path $Directory ($Definition.Folder + '.json'))
+}
+function Save-OsSettings {
+    # Writes the selected OS's choices; returns the file path. Only the known option names are stored, as true/false.
+    param([Parameter(Mandatory)][string]$Directory, [Parameter(Mandatory)][pscustomobject]$Definition, [hashtable]$Options = @{}, [string[]]$Languages = @())
+    Ensure-Directory $Directory
+    $opts = [ordered]@{}
+    foreach ($k in $script:SettingOptionNames) { if ($Options.ContainsKey($k)) { $opts[$k] = [bool]$Options[$k] } }
+    $data = [ordered]@{
+        schemaVersion = 1; os = $Definition.Name; saved = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'); options = $opts
+        languages = @($Languages | Where-Object { $_ } | ForEach-Object { ([string]$_).ToLowerInvariant() })
+    }
+    $file = Get-OsSettingsFile -Directory $Directory -Definition $Definition
+    [System.IO.File]::WriteAllText($file, (($data | ConvertTo-Json -Depth 4) + [Environment]::NewLine), (New-Object System.Text.UTF8Encoding($false)))
+    return $file
+}
+function Read-OsSettings {
+    # The OS's saved choices, or $null when it has none. An unusable file is reported (WARN) and ignored - never a crash.
+    # Saved languages that are no longer on the Languages tab list come back in MissingLanguages, not in Languages.
+    param([string]$Directory, [Parameter(Mandatory)][pscustomobject]$Definition, [object[]]$LanguageList = @())
+    if (-not $Directory) { return $null }
+    $file = Get-OsSettingsFile -Directory $Directory -Definition $Definition
+    if (-not (Test-Path -LiteralPath $file)) { return $null }
+    try {
+        $obj = [System.IO.File]::ReadAllText($file) | ConvertFrom-Json -ErrorAction Stop
+        $optObj = Get-ProfileValue $obj 'options' $null
+        if ($null -eq $optObj) { throw "'options' is missing." }
+        $opts = @{}
+        foreach ($k in $script:SettingOptionNames) {
+            $v = Get-ProfileValue $optObj $k $null
+            if ($null -eq $v) { continue }
+            if ($v -isnot [bool]) { throw "'options.$k' must be true or false." }
+            $opts[$k] = $v
+        }
+        $codes = @(@(Get-ProfileValue $obj 'languages' @()) | Where-Object { $_ } | ForEach-Object { ([string]$_).ToLowerInvariant() })
+        $known = @($LanguageList | ForEach-Object { $_.Code })
+        return [pscustomobject]@{ File = $file; Options = $opts; Languages = @($codes | Where-Object { $known -contains $_ }); MissingLanguages = @($codes | Where-Object { $known -notcontains $_ }) }
+    } catch {
+        Write-Log "Saved settings $file could not be used ($($_.Exception.Message)); using the defaults." 'WARN'
+        return $null
+    }
+}
+function Remove-OsSettings {
+    # Deletes the OS's saved choices; $true when there was a file.
+    param([Parameter(Mandatory)][string]$Directory, [Parameter(Mandatory)][pscustomobject]$Definition)
+    $file = Get-OsSettingsFile -Directory $Directory -Definition $Definition
+    if (-not (Test-Path -LiteralPath $file)) { return $false }
+    Remove-Item -LiteralPath $file -Force -ErrorAction Stop
+    return $true
+}
+function Save-GeneralSettings {
+    param([Parameter(Mandatory)][string]$Directory, [string]$Root)
+    Ensure-Directory $Directory
+    $data = [ordered]@{ schemaVersion = 1; saved = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'); root = [string]$Root }
+    [System.IO.File]::WriteAllText((Join-Path $Directory 'General.json'), (($data | ConvertTo-Json) + [Environment]::NewLine), (New-Object System.Text.UTF8Encoding($false)))
+}
+function Read-GeneralSettings {
+    # The saved repository root, or '' when there is none or the file is unusable (WARN).
+    param([string]$Directory)
+    if (-not $Directory) { return '' }
+    $file = Join-Path $Directory 'General.json'
+    if (-not (Test-Path -LiteralPath $file)) { return '' }
+    try { return ([string](Get-ProfileValue ([System.IO.File]::ReadAllText($file) | ConvertFrom-Json -ErrorAction Stop) 'root' '')).Trim() }
+    catch { Write-Log "Saved settings $file could not be used ($($_.Exception.Message))." 'WARN'; return '' }
 }
 function Get-DefaultLanguageSelection {
     # A profile's defaultLanguages split into the codes that are on the Languages tab list (to pre-select) and the ones
@@ -1714,17 +1788,22 @@ function Invoke-MediaRefresh {
    <TabItem Header="Languages"><Grid Margin="18"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions><TextBlock Text="Language packs, language features and fonts to add to install.wim (WinRE and boot.wim stay English-only). Requires a Language Pack ISO and a Features on Demand ISO. Leave empty for English only. Defaults follow the selected operating system. The list comes from Profiles\Languages.json." TextWrapping="Wrap"/><ListBox x:Name="LanguageList" Grid.Row="1" SelectionMode="Multiple" Margin="0,12,0,0"/></Grid></TabItem>
    <TabItem Header="Log"><TextBox x:Name="LogBox" Margin="12" IsReadOnly="True" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12" Background="#111827" Foreground="#E5E7EB"/></TabItem>
   </TabControl>
-  <Grid Grid.Row="2" Margin="0,14,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><TextBlock x:Name="Status" Text="Ready"/><ProgressBar x:Name="Progress" Height="18" Minimum="0" Maximum="100" Margin="0,5,14,0"/></StackPanel><Button x:Name="RunButton" Grid.Column="1" Content="Start refresh" Width="130" Height="38" Margin="0,0,8,0" Background="#0078D4" Foreground="White" FontWeight="SemiBold"/><Button x:Name="CancelButton" Grid.Column="2" Content="Cancel" Width="90" Height="38" IsEnabled="False"/></Grid>
+  <Grid Grid.Row="2" Margin="0,14,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><TextBlock x:Name="Status" Text="Ready"/><ProgressBar x:Name="Progress" Height="18" Minimum="0" Maximum="100" Margin="0,5,14,0"/></StackPanel><Button x:Name="SaveSettingsButton" Grid.Column="1" Content="Save settings" Width="110" Height="38" Margin="0,0,8,0" ToolTip="Save the ticked options and languages for the selected operating system (Settings folder beside Profiles). They are loaded whenever this OS is selected."/><Button x:Name="ResetSettingsButton" Grid.Column="2" Content="Reset to defaults" Width="120" Height="38" Margin="0,0,14,0" ToolTip="Delete the saved settings for the selected operating system and go back to the defaults."/><Button x:Name="RunButton" Grid.Column="3" Content="Start refresh" Width="130" Height="38" Margin="0,0,8,0" Background="#0078D4" Foreground="White" FontWeight="SemiBold"/><Button x:Name="CancelButton" Grid.Column="4" Content="Cancel" Width="90" Height="38" IsEnabled="False"/></Grid>
  </Grid>
 </Window>
 '@
 $reader = New-Object System.Xml.XmlNodeReader $xaml
 $window = [Windows.Markup.XamlReader]::Load($reader)
-foreach ($ctl in @('HeaderOs','HeaderPhase','RootText','OsCombo','ReloadProfilesButton','AcquirePatchesButton','ProfileInfo','ChkPreflight','ChkInstall','ChkBoot','ChkWinRE','ChkVerify','ChkBuildMedia','ChkBuildIso','ChkSSU','ChkLCU','ChkSafeOS','ChkNetCU','ChkSetupDU','ChkNetFx3','LanguageList','LogBox','Status','Progress','RunButton','CancelButton')) {
+foreach ($ctl in @('HeaderOs','HeaderPhase','RootText','OsCombo','ReloadProfilesButton','AcquirePatchesButton','ProfileInfo','ChkPreflight','ChkInstall','ChkBoot','ChkWinRE','ChkVerify','ChkBuildMedia','ChkBuildIso','ChkSSU','ChkLCU','ChkSafeOS','ChkNetCU','ChkSetupDU','ChkNetFx3','LanguageList','LogBox','Status','Progress','RunButton','CancelButton','SaveSettingsButton','ResetSettingsButton')) {
     Set-Variable -Name $ctl -Value $window.FindName($ctl) -Scope Script
 }
 # Profiles: JSON files in a Profiles folder beside the script (or under LOCALAPPDATA when the script has no file path).
 $script:ProfilesDir = if ($PSScriptRoot) { Join-Path $PSScriptRoot 'Profiles' } else { Join-Path $env:LOCALAPPDATA 'MediaRefreshStudio\Profiles' }
+# Saved GUI choices (step 10c): Settings\<OS folder>.json per OS and Settings\General.json, beside Profiles.
+$script:SettingsDir = Join-Path (Split-Path $script:ProfilesDir -Parent) 'Settings'
+# The window's own checkbox defaults, restored when an OS without saved settings is selected.
+$script:DefaultChecks = @{}
+foreach ($n in $script:SettingOptionNames) { $script:DefaultChecks[$n] = [bool](Get-Variable -Name "Chk$n" -Scope Script -ValueOnly).IsChecked }
 $script:LanguageOptions = @(Import-LanguageList)   # built-in list until the Profiles folder is loaded
 function Update-LanguageItems {
     # One entry per Languages.json row, shown as "German (Germany) - de-de"; the code is kept in Tag and is what runs use.
@@ -1741,6 +1820,43 @@ function Set-DefaultLanguages {
     $sel = Get-DefaultLanguageSelection -Definition $def -LanguageList $script:LanguageOptions
     foreach ($item in $script:LanguageList.Items) { $item.IsSelected = (@($sel.Select) -contains [string]$item.Tag) }
     if (@($sel.Missing).Count -gt 0) { Write-Log "Default language(s) $(@($sel.Missing) -join ', ') of $($def.Name) are not in $($script:LanguagesFileName) and were not selected." 'WARN' }
+}
+function Set-OsSettings {
+    # Applies the selected OS's saved settings, or the defaults (window defaults + the profile's default languages).
+    $def = $script:OsDefinitions[[string]$script:OsCombo.SelectedItem]
+    if (-not $def) { return }
+    $saved = Read-OsSettings -Directory $script:SettingsDir -Definition $def -LanguageList $script:LanguageOptions
+    foreach ($n in $script:SettingOptionNames) {
+        $value = if ($saved -and $saved.Options.ContainsKey($n)) { $saved.Options[$n] } else { $script:DefaultChecks[$n] }
+        (Get-Variable -Name "Chk$n" -Scope Script -ValueOnly).IsChecked = [bool]$value
+    }
+    if ($saved) {
+        foreach ($item in $script:LanguageList.Items) { $item.IsSelected = (@($saved.Languages) -contains [string]$item.Tag) }
+        if (@($saved.MissingLanguages).Count -gt 0) { Write-Log "Saved language(s) $(@($saved.MissingLanguages) -join ', ') for $($def.Name) are not in $($script:LanguagesFileName) and were not selected." 'WARN' }
+        Write-Log "Settings for $($def.Name) loaded from $($saved.File)"
+    } else { Set-DefaultLanguages }
+}
+function Get-SelectedSettings {
+    $opts = @{}
+    foreach ($n in $script:SettingOptionNames) { $opts[$n] = [bool](Get-Variable -Name "Chk$n" -Scope Script -ValueOnly).IsChecked }
+    $langs = @(foreach ($item in $script:LanguageList.Items) { if ($item.IsSelected) { [string]$item.Tag } })
+    return [pscustomobject]@{ Options = $opts; Languages = $langs }
+}
+function Save-CurrentOsSettings {
+    $def = $script:OsDefinitions[[string]$script:OsCombo.SelectedItem]
+    if (-not $def) { return $null }
+    $sel = Get-SelectedSettings
+    $file = Save-OsSettings -Directory $script:SettingsDir -Definition $def -Options $sel.Options -Languages $sel.Languages
+    Save-GeneralSettings -Directory $script:SettingsDir -Root ([string]$script:RootText.Text)
+    Write-Log "Settings for $($def.Name) saved to $file ($(@($sel.Languages).Count) language(s)); repository root saved."
+    return $file
+}
+function Reset-CurrentOsSettings {
+    $def = $script:OsDefinitions[[string]$script:OsCombo.SelectedItem]
+    if (-not $def) { return }
+    if (Remove-OsSettings -Directory $script:SettingsDir -Definition $def) { Write-Log "Saved settings for $($def.Name) removed; defaults restored." }
+    else { Write-Log "No saved settings for $($def.Name); defaults restored." }
+    Set-OsSettings
 }
 function Update-ProfileInfo {
     $def = $script:OsDefinitions[[string]$script:OsCombo.SelectedItem]
@@ -1776,14 +1892,29 @@ function Get-UiOptions {
         Languages = $langs; ProfilesDir = $script:ProfilesDir
     }
 }
-$script:OsCombo.Add_SelectionChanged({ Set-DefaultLanguages; Update-ProfileInfo; Update-HeaderIdle })
+$script:OsCombo.Add_SelectionChanged({ Set-OsSettings; Update-ProfileInfo; Update-HeaderIdle })
+$script:SaveSettingsButton.Add_Click({
+    if (-not $script:RunButton.IsEnabled) { return }
+    try { if (Save-CurrentOsSettings) { $script:Status.Text = "Settings saved for $([string]$script:OsCombo.SelectedItem)" } }
+    catch { [System.Windows.MessageBox]::Show("Could not save the settings: $($_.Exception.Message)", 'WimForge', 'OK', 'Error') | Out-Null }
+})
+$script:ResetSettingsButton.Add_Click({
+    if (-not $script:RunButton.IsEnabled) { return }
+    $os = [string]$script:OsCombo.SelectedItem
+    $answer = [System.Windows.MessageBox]::Show("Delete the saved settings for $os and go back to the defaults?", 'WimForge - reset settings', 'YesNo', 'Question')
+    if ($answer -ne 'Yes') { return }
+    try { Reset-CurrentOsSettings; $script:Status.Text = "Defaults restored for $os" }
+    catch { [System.Windows.MessageBox]::Show("Could not reset the settings: $($_.Exception.Message)", 'WimForge', 'OK', 'Error') | Out-Null }
+})
 $script:ReloadProfilesButton.Add_Click({
     if (-not $script:RunButton.IsEnabled) { return }
     Update-ProfileList
     Write-Log "Profiles reloaded from $($script:ProfilesDir)"
 })
+$savedRoot = Read-GeneralSettings -Directory $script:SettingsDir
+if ($savedRoot) { $script:RootText.Text = $savedRoot; Write-Log "Repository root loaded from saved settings: $savedRoot" }
 Update-ProfileList
-Set-DefaultLanguages
+Set-OsSettings
 Update-ProfileInfo
 Update-HeaderIdle
 
